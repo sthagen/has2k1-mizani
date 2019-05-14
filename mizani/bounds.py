@@ -33,7 +33,7 @@ from .utils import first_element
 
 __all__ = ['censor', 'expand_range', 'rescale', 'rescale_max',
            'rescale_mid', 'squish_infinite', 'zero_range',
-           'expand_range_distinct', 'squish']
+           'expand_range_distinct', 'squish', 'in_range']
 
 
 def rescale(x, to=(0, 1), _from=None):
@@ -564,3 +564,35 @@ def expand_range_distinct(range, expand=(0, 0, 0, 0), zero_width=1):
     lower = expand_range(range, expand[0], expand[1], zero_width)[0]
     upper = expand_range(range, expand[2], expand[3], zero_width)[1]
     return (lower, upper)
+
+
+def in_range(x, range=(0, 1), include=(False, False)):
+    """
+    Return True if all values in x are in the given range
+
+    Parameters
+    ----------
+    x : array-like
+        Values to be checked
+    range : tuple
+        (min, max) values of the range
+    include : tuple
+        Whether the min and max values are included in
+        the range
+
+    Returns
+    -------
+    out : bool
+        Whether all values in x are in the range.
+
+    >>> in_range([0, .5, 1])
+    False
+    >>> in_range([0, .5, 1], include=(True, True))
+    True
+    >>> in_range([1, 2, 3], (0, 4))
+    True
+    """
+    x = np.asarray(x)
+    greater = np.greater_equal if include[0] else np.greater
+    less = np.less_equal if include[1] else np.less
+    return np.all(greater(x, range[0]) & less(x, range[1]))

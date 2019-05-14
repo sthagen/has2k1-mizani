@@ -8,7 +8,7 @@ import pytest
 
 from mizani.bounds import (censor, expand_range, rescale, rescale_max,
                            rescale_mid, squish_infinite, zero_range,
-                           expand_range_distinct, squish)
+                           expand_range_distinct, squish, in_range)
 
 NaT_type = type(pd.NaT)
 
@@ -398,3 +398,13 @@ def test_zero_range():
     assert(not zero_range([4, float('inf')]))
     with pytest.raises(TypeError):
         zero_range(['a', 'b'])
+
+
+def test_in_range():
+    x = [1, 2, 3, 4]
+    assert not in_range(x)
+    assert not in_range(x, (1, 4))
+    assert in_range(x, (1, 4), (True, True))
+    assert in_range(x, (0, 5))
+    assert not in_range(x, (1, 4), (True, False))
+    assert in_range(x, (1, 5), (True, False))

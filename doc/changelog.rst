@@ -1,6 +1,13 @@
 Changelog
 =========
 
+v0.5.5
+------
+*not-yet-released*
+
+- Added :class:`mizani.bounds.in_range` that checks if values in an
+  array-like fall within a given range
+
 v0.5.4
 ------
 *(2018-03-26)*
