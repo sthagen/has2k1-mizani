@@ -1,9 +1,23 @@
 Changelog
 =========
 
+Current Development Version
+---------------------------
+*future date*
+
+API Changes
+***********
+
+- The ``lut`` parameter of :class:`~mizani.palettes.cmap_pal` and
+ :class:`~mizani.palettes.cmap_d_pal` has been deprecated and will
+ removed in a future version.
+
 v0.7.4
 ------
 *2022-04-02*
+
+.. image:: https://zenodo.org/badge/DOI/10.5281/zenodo.6408007.svg
+   :target: https://doi.org/10.5281/zenodo.6408007
 
 API Changes
 ***********
