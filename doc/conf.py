@@ -15,15 +15,18 @@
 import sys
 import os
 
+from pathlib import Path
+
 on_rtd = os.environ.get('READTHEDOCS') == 'True'
 
 # If extensions (or modules to document with autodoc) are in another directory,
 # add these directories to sys.path here. If the directory is relative to the
 # documentation root, use os.path.abspath to make it absolute, like shown here.
-CUR_PATH = os.path.dirname(os.path.abspath(__file__))
-PROJECT_PATH = os.path.abspath(CUR_PATH + '/../')
-sys.path.insert(0, CUR_PATH)
-sys.path.insert(0, PROJECT_PATH)
+CUR_PATH = Path(__file__).parent
+PROJECT_PATH = CUR_PATH.parent
+
+sys.path.insert(0, str(CUR_PATH))
+sys.path.insert(0, str(PROJECT_PATH))
 
 if on_rtd:
     import mock
@@ -85,19 +88,24 @@ copyright = '2022, Hassan Kibirige'
 # built documents.
 
 # The short X.Y version.
-
 try:
-    import mizani
-    version = mizani.__version__
-except ImportError:
-    version = 'unknown'
+    from importlib.metadata import version as _version
+finally:
+    version = _version('mizani')
 
 # readthedocs modifies the repository which messes up the version.
+# 1. remove +dirty if readthedocs modifies the repo,
+# 2. remove the 0.0 version created by setuptools_scm when clone is too shallow
 if on_rtd:
     import re
-    version = version.rstrip('.dirty')
-    version = re.sub(r'\+0\..+', '', version)
-    version
+    p1 = re.compile(r'\+dirty$')
+    if p1.match(version):
+        version = p1.sub('', version)
+
+    p2 = re.compile(r'^0\.0\.post\d+\+g')
+    if p2.match(version):
+        commit = p2.sub('', version)
+        version = f'Commit: {commit}'
 
 # The full version, including alpha/beta/rc tags.
 release = version
@@ -330,9 +338,9 @@ texinfo_documents = [
 # Example configuration for intersphinx: refer to the Python standard library.
 intersphinx_mapping = {
     'python': ('https://docs.python.org/3/', None),
-    'matplotlib': ('https://matplotlib.org/', None),
+    'matplotlib': ('https://matplotlib.org/stable', None),
     'numpy': ('https://numpy.org/doc/stable', None),
-    'scipy': ('https://docs.scipy.org/doc/scipy/reference', None),
+    'scipy': ('https://docs.scipy.org/doc/scipy', None),
 }
 
 
