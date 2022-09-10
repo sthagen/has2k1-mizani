@@ -5,7 +5,11 @@ from datetime import datetime, timedelta
 import pandas as pd
 import numpy as np
 import pytest
-import pytz
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:
+    # python < 3.9
+    from backports.zoneinfo import ZoneInfo
 
 from mizani.formatters import (custom_format, comma_format,
                                currency_format, percent_format,
@@ -96,7 +100,26 @@ def test_log_format():
     assert formatter([1, 35, 60, 1e6]) == ['1', '4e1', '6e1', '1e6']
 
     formatter = log_format(base=2)
-    assert formatter([1, 10, 11, 1011]) == ['1', '10', '11', '1011']
+    assert formatter([1, 2, 4, 8]) == ['1', '10', '100', '1000']
+    assert formatter([0b1, 0b10, 0b11, 0b1011]) == ['1', '10', '11', '1011']
+
+    formatter = log_format(base=8)
+    assert formatter([1, 4, 8, 16, 64]) == ['1', '4', '10', '20', '100']
+
+    formatter = log_format(base=16)
+    assert formatter([1, 8, 16, 32, 256]) == ['1', '8', '10', '20', '100']
+
+    # Fallback to base 10
+    formatter = log_format(base=np.e)
+    with pytest.warns(UserWarning, match=r"base = 10$"):
+        assert formatter([1, 8, 16, 32]) == ['1', '8', '16', '32']
+
+    # mathtex
+    formatter = log_format(mathtex=True)
+    assert formatter([0.001, 0.1, 10000]) == \
+        ['$10^{-3}$', '$10^{-1}$', '$10^{4}$']
+    assert formatter([35, 60]) == ['35', '60']
+    assert formatter([1, 10000]) == ['$10^{0}$', '$10^{4}$']
 
 
 def test_date_format():
@@ -110,11 +133,11 @@ def test_date_format():
         ['2006:01:01', '2007:02:02', '2008:03:03', '2009:04:04']
 
     # Different timezones
-    pct = pytz.timezone('US/Pacific')
-    ug = pytz.timezone('Africa/Kampala')
-    x = [datetime(2010, 1, 1, tzinfo=ug),
-         datetime(2010, 1, 1, tzinfo=pct)]
-    with pytest.warns(UserWarning):
+    PCT = ZoneInfo('US/Pacific')
+    UG = ZoneInfo('Africa/Kampala')
+    x = [datetime(2010, 1, 1, tzinfo=UG),
+         datetime(2010, 1, 1, tzinfo=PCT)]
+    with pytest.warns(UserWarning, match=r"different time zones"):
         date_format()(x)
 
 

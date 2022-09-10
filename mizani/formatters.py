@@ -13,6 +13,13 @@ import re
 from bisect import bisect_right
 from warnings import warn
 
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:
+    # python < 3.9
+    from backports.zoneinfo import ZoneInfo
+
+
 import numpy as np
 from matplotlib.dates import DateFormatter, date2num
 from matplotlib.ticker import ScalarFormatter
@@ -366,6 +373,9 @@ class log_format:
         limits (int, int) where if the any of the powers of the
         numbers falls outside, then the labels will be in
         exponent form. This only applies for base 10.
+    mathtex : bool
+        If True, return the labels in mathtex format as understood
+        by Matplotlib.
 
     Examples
     --------
@@ -374,16 +384,21 @@ class log_format:
 
     >>> log_format()([0.0001, 0.1, 10000])
     ['1e-4', '1e-1', '1e4']
+
+    >>> log_format(mathtex=True)([0.0001, 0.1, 10000])
+    ['$10^{-4}$', '$10^{-1}$', '$10^{4}$']
     """
 
-    def __init__(self, base=10, exponent_limits=(-4, 4), **kwargs):
+    def __init__(self, base=10, exponent_limits=(-4, 4), mathtex=False):
         self.base = base
         self.exponent_limits = exponent_limits
+        self.mathtex = mathtex
 
     def _tidyup_labels(self, labels):
         """
-        Make all labels uniform in format and remove redundant zeros
-        for labels in exponential format.
+        Make all labels uniform in format
+
+        Remove redundant zeros for labels in exponential format.
 
         Parameters
         ----------
@@ -395,6 +410,7 @@ class log_format:
         out : list-like
             Labels
         """
+
         def remove_zeroes(s):
             """
             Remove unnecessary zeros for float string s
@@ -415,13 +431,29 @@ class log_format:
             """
             return s if 'e' in s else '{:1.0e}'.format(float(s))
 
+        def as_mathtex(s):
+            """
+            Mathtex for maplotlib
+            """
+            if 'e' not in s:
+                assert s == '1', f"Unexpected value {s = }, instead of '1'"
+                return f"${self.base}^{{0}}$"
+
+            exp = s.split('e')[1]
+            return f"${self.base}^{{{exp}}}$"
+
         # If any are in exponential format, make all of
         # them expontential
-        has_e = np.array(['e' in x for x in labels])
-        if not np.all(has_e) and not np.all(~has_e):
+        has_e = ['e' in x for x in labels]
+        if not all(has_e) and sum(has_e):
             labels = [as_exp(x) for x in labels]
 
         labels = [remove_zeroes(x) for x in labels]
+
+        has_e = ['e' in x for x in labels]
+        if self.mathtex and any(has_e):
+            labels = [as_mathtex(x) for x in labels]
+
         return labels
 
     def __call__(self, x):
@@ -457,7 +489,14 @@ class log_format:
                 fmt = '{:1.0e}'
             else:
                 fmt = '{:g}'
+        elif self.base == 2:
+            fmt = '{:b}'
+        elif self.base == 8:
+            fmt = '{:o}'
+        elif self.base == 16:
+            fmt = '{:x}'
         else:
+            warn("Formating values as base = 10")
             fmt = '{:g}'
 
         labels = [fmt.format(num) for num in x]
@@ -481,7 +520,6 @@ class date_format:
 
     Examples
     --------
-    >>> import pytz
     >>> from datetime import datetime
     >>> x = [datetime(x, 1, 1) for x in [2010, 2014, 2018, 2022]]
     >>> date_format()(x)
@@ -497,21 +535,25 @@ class date_format:
 
     Time zones are respected
 
-    >>> utc = pytz.timezone('UTC')
-    >>> ug = pytz.timezone('Africa/Kampala')
+    >>> UTC = ZoneInfo('UTC')
+    >>> UG = ZoneInfo('Africa/Kampala')
     >>> x = [datetime(2010, 1, 1, i) for i in [8, 15]]
-    >>> x_tz = [datetime(2010, 1, 1, i, tzinfo=ug) for i in [8, 15]]
+    >>> x_tz = [datetime(2010, 1, 1, i, tzinfo=UG) for i in [8, 15]]
     >>> date_format('%Y-%m-%d %H:%M')(x)
     ['2010-01-01 08:00', '2010-01-01 15:00']
     >>> date_format('%Y-%m-%d %H:%M')(x_tz)
-    ['2010-01-01 08:33', '2010-01-01 15:33']
+    ['2010-01-01 08:00', '2010-01-01 15:00']
 
     Format with a specific time zone
 
-    >>> date_format('%Y-%m-%d %H:%M', tz=utc)(x_tz)
-    ['2010-01-01 05:33', '2010-01-01 12:33']
+    >>> date_format('%Y-%m-%d %H:%M', tz=UTC)(x_tz)
+    ['2010-01-01 05:00', '2010-01-01 12:00']
+    >>> date_format('%Y-%m-%d %H:%M', tz='EST')(x_tz)
+    ['2010-01-01 00:00', '2010-01-01 07:00']
     """
     def __init__(self, fmt='%Y-%m-%d', tz=None):
+        if isinstance(tz, str):
+            tz = ZoneInfo(tz)
         self.formatter = DateFormatter(fmt, tz=tz)
         self.tz = tz
 
@@ -538,7 +580,7 @@ class date_format:
                        "Choosen `{}` the time zone of the first date. "
                        "To use a different time zone, create a "
                        "formatter and pass the time zone.")
-                warn(msg.format(tz.zone))
+                warn(msg.format(tz.key))
 
         # The formatter is tied to axes and takes
         # breaks in ordinal format.
