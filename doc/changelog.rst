@@ -1,16 +1,34 @@
 Changelog
 =========
 
-Current Development Version
----------------------------
-*future date*
+v0.8.1
+------
+
+*2022-09-28*
+
+Bug Fixes
+*********
+
+- Fixed regression bug in :class:`~mizani.formatters.log_format` for
+  where formatting for bases 2, 8 and 16 would fail if the values were
+  float-integers.
+
+Enhancements
+************
+- :class:`~mizani.formatters.log_format` now uses exponent notation
+  for bases other than base 10.
+
+v0.8.0
+------
+
+*2022-09-26*
 
 API Changes
 ***********
 
 - The ``lut`` parameter of :class:`~mizani.palettes.cmap_pal` and
- :class:`~mizani.palettes.cmap_d_pal` has been deprecated and will
- removed in a future version.
+  :class:`~mizani.palettes.cmap_d_pal` has been deprecated and will
+  removed in a future version.
 
 - :class:`~mizani.transforms.datetime_trans` gained parameter ``tz``
   that controls the timezone of the transformation.
@@ -18,6 +36,12 @@ API Changes
 - :class:`~mizani.formatters.log_format` gained boolean parameter
   ``mathtex`` for TeX values as understood matplotlib instead of
   values in scientific notation.
+
+Bug Fixes
+*********
+
+- Fixed bug in :class:`~mizani.bounds.zero_range` where ``uint64``
+  values would cause a RuntimeError.
 
 v0.7.4
 ------
