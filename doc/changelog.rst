@@ -1,10 +1,26 @@
 Changelog
 =========
 
+v0.8.2
+------
+
+*not-yet-released*
+
+
+Bug Fixes
+*********
+
+- Fixed bug in :class:`~mizani.transforms.datetime_trans` where
+  a pandas series with an index that did not start at 0 could not
+  be transformed.
+
 v0.8.1
 ------
 
 *2022-09-28*
+
+.. image:: https://zenodo.org/badge/DOI/10.5281/zenodo.7120121.svg
+   :target: https://doi.org/10.5281/zenodo.7120121
 
 Bug Fixes
 *********
@@ -22,6 +38,9 @@ v0.8.0
 ------
 
 *2022-09-26*
+
+.. image:: https://zenodo.org/badge/DOI/10.5281/zenodo.7113103.svg
+   :target: https://doi.org/10.5281/zenodo.7113103
 
 API Changes
 ***********
