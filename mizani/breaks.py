@@ -11,17 +11,25 @@ breaks make interpretation straight forward. These functions
 provide ways to calculate good(hopefully) breaks.
 """
 import sys
+from itertools import product
 
 import numpy as np
 import pandas as pd
-from matplotlib.dates import MinuteLocator, HourLocator, DayLocator
-from matplotlib.dates import WeekdayLocator, MonthLocator, YearLocator
-from matplotlib.dates import AutoDateLocator, SecondLocator
-from matplotlib.dates import num2date, YEARLY
+from matplotlib.dates import (
+    YEARLY,
+    AutoDateLocator,
+    DayLocator,
+    HourLocator,
+    MinuteLocator,
+    MonthLocator,
+    SecondLocator,
+    WeekdayLocator,
+    YearLocator,
+    num2date,
+)
 from matplotlib.ticker import MaxNLocator
 
-from .utils import min_max, SECONDS, NANOSECONDS
-
+from .utils import NANOSECONDS, SECONDS, log, min_max
 
 __all__ = ['mpl_breaks', 'log_breaks', 'minor_breaks',
            'trans_minor_breaks', 'date_breaks',
@@ -139,24 +147,13 @@ class log_breaks:
 
         n = self.n
         base = self.base
-        if base == 10:
-            rng = np.log10(limits)
-        elif base == 2:
-            rng = np.log2(limits)
-        elif base == np.e:
-            rng = np.log(limits)
-        else:
-            rng = np.log(limits)/np.log(base)
+        rng = log(limits, base)
         _min = int(np.floor(rng[0]))
         _max = int(np.ceil(rng[1]))
 
         # Prevent overflow
         if float(base) ** _max > sys.maxsize:
             base = float(base)
-
-        # numpy arrays with -ve number(s) and of dtype=int
-        # cannot be powers i.e. base ** arr fails
-        dtype = float if _min < 0 or _max < 0 else int
 
         if _max == _min:
             return base ** _min
@@ -167,7 +164,7 @@ class log_breaks:
         # _log_sub_breaks
         by = int(np.floor((_max-_min)/n)) + 1
         for step in range(by, 0, -1):
-            breaks = base ** np.arange(_min, _max+1, step=step, dtype=dtype)
+            breaks = np.array([base ** i for i in range(_min, _max+1, step)])
             relevant_breaks = (
                 (limits[0] <= breaks) &
                 (breaks <= limits[1])
@@ -205,10 +202,9 @@ class _log_sub_breaks:
     def __call__(self, limits):
         base = self.base
         n = self.n
-        rng = np.log(limits)/np.log(base)
+        rng = log(limits, base)
         _min = int(np.floor(rng[0]))
         _max = int(np.ceil(rng[1]))
-        dtype = float if _min < 0 or _max < 0 else int
         steps = [1]
 
         # Prevent overflow
@@ -218,31 +214,30 @@ class _log_sub_breaks:
         def delta(x):
             """
             Calculates the smallest distance in the log scale between the
-            currectly selected breaks and a new candidate 'x'
+            currently selected breaks and a new candidate 'x'
             """
             arr = np.sort(np.hstack([x, steps, base]))
-            if base == 10:
-                log_arr = np.log10(arr)
-            else:
-                log_arr = np.log(arr) / np.log(base)
+            log_arr = log(arr, base)
             return np.min(np.diff(log_arr))
 
         if self.base == 2:
-            return base ** np.arange(_min, _max+1, dtype=dtype)
+            return [base ** i for i in range(_min, _max+1)]
 
         candidate = np.arange(base+1)
         candidate = np.compress(
-            (1 < candidate) & (candidate < base), candidate)
+            (1 < candidate) & (candidate < base),
+            candidate
+        )
 
         while len(candidate):
             best = np.argmax([delta(x) for x in candidate])
             steps.append(candidate[best])
             candidate = np.delete(candidate, best)
-
-            breaks = np.outer(
-                base ** np.arange(_min, _max+1, dtype=dtype), steps).ravel()
+            _factors = [base ** i for i in range(_min, _max+1)]
+            breaks = np.array([f*s for f, s in product(_factors, steps)])
             relevant_breaks = (
-                (limits[0] <= breaks) & (breaks <= limits[1]))
+                (limits[0] <= breaks) & (breaks <= limits[1])
+            )
 
             if np.sum(relevant_breaks) >= n-2:
                 breaks = np.sort(breaks)
