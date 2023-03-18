@@ -1,3 +1,4 @@
+########## Project ##########
 [project]
 name = "mizani"
 description = "Scales for Python"
@@ -29,13 +30,36 @@ dependencies = [
 requires-python = ">=3.8"
 
 [project.optional-dependencies]
-doc = [
-    "sphinx>=4.5.0",
-    "numpydoc>=0.9.1"
+all = [
+    "mizani[doc]",
+    "mizani[build]",
+    "mizani[lint]",
+    "mizani[test]",
+    "mizani[dev]",
 ]
-testing = [
+
+doc = [
+    "sphinx>=6.1.0",
+    "numpydoc>=0.9.1",
+]
+
+build = [
+    "build",
+    "wheel",
+]
+
+lint = [
+    "black>=23.1.0",
     "ruff",
+]
+
+test = [
     "pytest-cov"
+]
+
+dev = [
+    "notebook",
+    "twine"
 ]
 
 [project.urls]
@@ -44,6 +68,7 @@ repository = "https://github.com/has2k1/mizani"
 changelog = "https://mizani.readthedocs.io/en/stable/changelog.html"
 ci = "https://github.com/has2k1/mizani/actions"
 
+########## Build System ##########
 [build-system]
 requires = [
     "setuptools>=61",
@@ -52,6 +77,26 @@ requires = [
 ]
 build-backend = "setuptools.build_meta"
 
+########## Tool - Setuptools ##########
+# If you only specify the top-level package (=mizani) setuptools complains
+# about not listing the sub-packages. Since we want every sub-package in the
+# mizani package, it is easier to use find directive.
+[tool.setuptools.packages.find]
+include = ["mizani*"]
+
+[tool.setuptools_scm]
+fallback_version = "999"
+version_scheme = 'post-release'
+
+########## Tool - pytest ##########
+[tool.pytest.ini_options]
+testpaths = [
+    "mizani"
+]
+addopts = "--pyargs --cov=mizani --cov-report=xml --doctest-modules --doctest-ignore-import-errors"
+doctest_optionflags = "ALLOW_BYTES NORMALIZE_WHITESPACE"
+
+########## Tool - Coverage ##########
 # Coverage.py
 [tool.coverage.run]
 branch = true
@@ -64,6 +109,7 @@ omit = [
    "mizani/_version.py",
    "mizani/external/*",
    "mizani/tests/*",
+   "mizani/typing.py",
 ]
 disable_warnings = ["include-ignored"]
 
@@ -72,22 +118,20 @@ exclude_lines = [
    "pragma: no cover",
    "^def test_",
    "if __name__ == .__main__.:",
-   "while k < float\\('inf'\\):"
+   "while k < float\\('inf'\\):",
+   "if typing.TYPE_CHECKING:",
+   "except ImportError:",
+   "except PackageNotFoundError:",
 ]
 precision = 1
 
-[tool.setuptools]
-packages = ["mizani"]
-
-[tool.setuptools_scm]
-fallback_version = "999"
-version_scheme = 'post-release'
-
+########## Tool - Ruff ##########
 [tool.ruff]
 line-length = 79
 select = ["E", "F", "C"]
 ignore = [
-    "E741"
+    "E741",  # Ambiguous l
+    "C901"  # Function is too complex
 ]
 # Allow autofix for all enabled rules (when `--fix`) is provided
 fixable = ["A", "B", "C", "E", "F", "I"]
@@ -101,3 +145,12 @@ dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
 
 # Assume Python 3.8.
 target-version = "py38"
+
+########## Tool - Black ##########
+[tool.black]
+line-length = 79
+extend-exclude = '''
+(
+ external/
+)
+'''
