@@ -1,10 +1,29 @@
 Changelog
 =========
 
+v0.9.1
+------
+
+*2023-05-19*
+
+
+.. image:: https://zenodo.org/badge/DOI/10.5281/zenodo.7951172.svg
+   :target: https://doi.org/10.5281/zenodo.7951172
+
+Bug Fixes
+*********
+
+- Fixed but in :class:`~mizani.formatters.date_format` to handle datetime
+  sequences within the same timezone but a mixed daylight saving state.
+  `(plotnine #687) <https://github.com/has2k1/plotnine/issues/687>`_
+
 v0.9.0
 ------
 
 *2023-04-15*
+
+.. image:: https://zenodo.org/badge/DOI/10.5281/zenodo.7951171.svg
+   :target: https://doi.org/10.5281/zenodo.7951171
 
 API Changes
 ************
