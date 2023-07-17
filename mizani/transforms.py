@@ -18,21 +18,18 @@ cannot provide transformation specific guides & decorations for the
 plot. The :class:`trans` is aimed at being useful for *scale* and
 *coordinate* transformations.
 """
-import datetime
-import sys
-from collections.abc import Iterable
-from types import MethodType
+from __future__ import annotations
 
-try:
-    from zoneinfo import ZoneInfo
-except ImportError:
-    # python < 3.9
-    from backports.zoneinfo import ZoneInfo
+import sys
+import typing
+from datetime import MAXYEAR, MINYEAR, datetime, timedelta
+from types import MethodType
+from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
-from matplotlib.dates import date2num, num2date
 
+from ._core.dates import datetime_to_num, num_to_datetime
 from .breaks import (
     date_breaks,
     extended_breaks,
@@ -41,7 +38,26 @@ from .breaks import (
     timedelta_breaks,
     trans_minor_breaks,
 )
-from .formatters import date_format, log_format, mpl_format, timedelta_format
+from .formatters import (
+    date_format,
+    log_format,
+    number_format,
+    timedelta_format,
+)
+
+if typing.TYPE_CHECKING:
+    from typing import Any, Callable, Optional, Type
+
+    from mizani.typing import (
+        AnyVector,
+        BreaksFunction,
+        FloatVector,
+        FormatFunction,
+        InverseFunction,
+        MinorBreaksFunction,
+        NDArrayDatetime,
+        TransformFunction,
+    )
 
 __all__ = [
     "asn_trans",
@@ -116,43 +132,36 @@ class trans:
     domain = (-np.inf, np.inf)
 
     #: Callable to calculate breaks
-    breaks_ = None
+    breaks_: BreaksFunction = extended_breaks(n=5)
 
     #: Callable to calculate minor_breaks
-    minor_breaks = None
+    minor_breaks: MinorBreaksFunction = minor_breaks(1)
 
     #: Function to format breaks
-    format = staticmethod(mpl_format())
+    format: FormatFunction = staticmethod(number_format())
 
-    def __init__(self, **kwargs):
-        for attr in kwargs:
-            if hasattr(self, attr):
-                setattr(self, attr, kwargs[attr])
+    def __init__(self, **kwargs: Any):
+        for k, v in kwargs.items():
+            if hasattr(self, k):
+                setattr(self, k, v)
             else:
-                raise KeyError("Unknown Parameter {!r}".format(attr))
-
-        # Defaults
-        if self.breaks_ is None and "breaks_" not in kwargs:
-            self.breaks_ = extended_breaks(n=5)
-
-        if self.minor_breaks is None and "minor_breaks" not in kwargs:
-            self.minor_breaks = minor_breaks(1)
+                raise AttributeError(f"Unknown Parameter: {k}")
 
     @staticmethod
-    def transform(x):
+    def transform(x: AnyVector) -> FloatVector:
         """
         Transform of x
         """
         return x
 
     @staticmethod
-    def inverse(x):
+    def inverse(x: FloatVector) -> AnyVector:
         """
         Inverse of x
         """
         return x
 
-    def breaks(self, limits):
+    def breaks(self, limits: tuple[Any, Any]) -> AnyVector:
         """
         Calculate breaks in data space and return them
         in transformed space.
@@ -184,9 +193,9 @@ class trans:
         # e.g. probabilities will be in [0, 1] domain
         vmin = np.max([self.domain[0], limits[0]])
         vmax = np.min([self.domain[1], limits[1]])
-        breaks = np.asarray(self.breaks_([vmin, vmax]))
+        breaks = np.asarray(self.breaks_((vmin, vmax)))
 
-        # Some methods(mpl_breaks, extended_breaks) that
+        # Some methods (e.g. extended_breaks) that
         # calculate breaks take the limits as guide posts and
         # not hard limits.
         breaks = breaks.compress(
@@ -196,16 +205,16 @@ class trans:
 
 
 def trans_new(
-    name,
-    transform,
-    inverse,
-    breaks=None,
-    minor_breaks=None,
-    _format=None,
+    name: str,
+    transform: TransformFunction,
+    inverse: InverseFunction,
+    breaks: Optional[BreaksFunction] = None,
+    minor_breaks: Optional[MinorBreaksFunction] = None,
+    _format: Optional[FormatFunction] = None,
     domain=(-np.inf, np.inf),
-    doc="",
+    doc: str = "",
     **kwargs,
-):
+) -> trans:
     """
     Create a transformation class object
 
@@ -269,10 +278,10 @@ def trans_new(
     if _format:
         d["format"] = _get(_format)
 
-    return type(klass_name, (trans,), d)
+    return type(klass_name, (trans,), d)  # type: ignore
 
 
-def log_trans(base=None, **kwargs):
+def log_trans(base: Optional[float] = None, **kwargs: Any) -> trans:
     """
     Create a log transform class for *base*
 
@@ -295,36 +304,36 @@ def log_trans(base=None, **kwargs):
     if base is None:
         name = "log"
         base = np.exp(1)
-        transform = np.log
+        transform = np.log  # type: ignore
     elif base == 10:
         name = "log10"
-        transform = np.log10
+        transform = np.log10  # type: ignore
     elif base == 2:
         name = "log2"
-        transform = np.log2
+        transform = np.log2  # type: ignore
     else:
         name = "log{}".format(base)
 
-        def transform(x):
+        def transform(x: FloatVector) -> FloatVector:
             return np.log(x) / np.log(base)
 
     # inverse function
     def inverse(x):
-        return np.power(base, x)
+        return np.power(base, x)  # type: ignore
 
     if "domain" not in kwargs:
         kwargs["domain"] = (sys.float_info.min, np.inf)
 
     if "breaks" not in kwargs:
-        kwargs["breaks"] = log_breaks(base=base)
+        kwargs["breaks"] = log_breaks(base=base)  # type: ignore
 
     kwargs["base"] = base
-    kwargs["_format"] = log_format(base)
+    kwargs["_format"] = log_format(base)  # type: ignore
 
     _trans = trans_new(name, transform, inverse, **kwargs)
 
     if "minor_breaks" not in kwargs:
-        n = int(base) - 2
+        n = int(base) - 2  # type: ignore
         _trans.minor_breaks = trans_minor_breaks(_trans, n=n)
 
     return _trans
@@ -334,7 +343,7 @@ log10_trans = log_trans(10, doc="Log 10 Transformation")
 log2_trans = log_trans(2, doc="Log 2 Transformation")
 
 
-def exp_trans(base=None, **kwargs):
+def exp_trans(base: Optional[float] = None, **kwargs: Any):
     """
     Create a exponential transform class for *base*
 
@@ -363,11 +372,11 @@ def exp_trans(base=None, **kwargs):
 
     # transform function
     def transform(x):
-        return np.power(base, x)
+        return np.power(base, x)  # type: ignore
 
     # inverse function
     def inverse(x):
-        return np.log(x) / np.log(base)
+        return np.log(x) / np.log(base)  # type: ignore
 
     kwargs["base"] = base
     return trans_new(name, transform, inverse, **kwargs)
@@ -378,8 +387,8 @@ class log1p_trans(trans):
     Log plus one Transformation
     """
 
-    transform = staticmethod(np.log1p)
-    inverse = staticmethod(np.expm1)
+    transform = staticmethod(np.log1p)  # type: ignore
+    inverse = staticmethod(np.expm1)  # type: ignore
 
 
 class identity_trans(trans):
@@ -387,7 +396,7 @@ class identity_trans(trans):
     Identity Transformation
     """
 
-    pass
+    ...
 
 
 class reverse_trans(trans):
@@ -395,8 +404,8 @@ class reverse_trans(trans):
     Reverse Transformation
     """
 
-    transform = staticmethod(np.negative)
-    inverse = staticmethod(np.negative)
+    transform = staticmethod(np.negative)  # type: ignore
+    inverse = staticmethod(np.negative)  # type: ignore
 
 
 class sqrt_trans(trans):
@@ -404,8 +413,8 @@ class sqrt_trans(trans):
     Square-root Transformation
     """
 
-    transform = staticmethod(np.sqrt)
-    inverse = staticmethod(np.square)
+    transform = staticmethod(np.sqrt)  # type: ignore
+    inverse = staticmethod(np.square)  # type: ignore
     domain = (0, np.inf)
 
 
@@ -428,8 +437,8 @@ class atanh_trans(trans):
     Arc-tangent Transformation
     """
 
-    transform = staticmethod(np.arctanh)
-    inverse = staticmethod(np.tanh)
+    transform = staticmethod(np.arctanh)  # type: ignore
+    inverse = staticmethod(np.tanh)  # type: ignore
 
 
 def boxcox_trans(p, offset=0, **kwargs):
@@ -550,21 +559,21 @@ def modulus_trans(p, offset=1, **kwargs):
     """
     if np.abs(p) < 1e-7:
 
-        def transform(x):
+        def transform(x: AnyVector) -> FloatVector:
             x = np.asarray(x)
-            return np.sign(x) * np.log(np.abs(x) + offset)
+            return np.sign(x) * np.log(np.abs(x) + offset)  # type: ignore
 
-        def inverse(x):
+        def inverse(x: FloatVector) -> AnyVector:
             x = np.asarray(x)
             return np.sign(x) * (np.exp(np.abs(x)) - offset)
 
     else:
 
-        def transform(x):
+        def transform(x: AnyVector) -> FloatVector:
             x = np.asarray(x)
             return np.sign(x) * ((np.abs(x) + offset) ** p - 1) / p
 
-        def inverse(x):
+        def inverse(x: FloatVector) -> AnyVector:
             x = np.asarray(x)
             return np.sign(x) * ((np.abs(x) * p + 1) ** (1 / p) - offset)
 
@@ -576,7 +585,7 @@ def modulus_trans(p, offset=1, **kwargs):
     return trans_new(**kwargs)
 
 
-def probability_trans(distribution, *args, **kwargs):
+def probability_trans(distribution: str, *args, **kwargs) -> trans:
     """
     Probability Transformation
 
@@ -602,8 +611,7 @@ def probability_trans(distribution, *args, **kwargs):
 
     cdists = {k for k in dir(stats) if hasattr(getattr(stats, k), "cdf")}
     if distribution not in cdists:
-        msg = "Unknown distribution '{}'"
-        raise ValueError(msg.format(distribution))
+        raise ValueError(f"Unknown distribution '{distribution}'")
 
     try:
         doc = kwargs.pop("_doc")
@@ -615,10 +623,10 @@ def probability_trans(distribution, *args, **kwargs):
     except KeyError:
         name = "prob_{}".format(distribution)
 
-    def transform(x):
+    def transform(x: AnyVector) -> FloatVector:
         return getattr(stats, distribution).cdf(x, *args, **kwargs)
 
-    def inverse(x):
+    def inverse(x: FloatVector) -> AnyVector:
         return getattr(stats, distribution).ppf(x, *args, **kwargs)
 
     return trans_new(name, transform, inverse, domain=(0, 1), doc=doc)
@@ -643,27 +651,26 @@ class datetime_trans(trans):
 
     Examples
     --------
-    >>> # from zoneinfo import ZoneInfo
-    >>> # from backports.zoneinfo import ZoneInfo  # for python < 3.9
+    >>> from zoneinfo import ZoneInfo
     >>> UTC = ZoneInfo("UTC")
     >>> EST = ZoneInfo("EST")
     >>> t = datetime_trans(EST)
-    >>> x = datetime.datetime(2022, 1, 20, tzinfo=UTC)
+    >>> x = [datetime(2022, 1, 20, tzinfo=UTC)]
     >>> x2 = t.inverse(t.transform(x))
-    >>> x == x2
+    >>> list(x) == list(x2)
     True
-    >>> x.tzinfo == x2.tzinfo
+    >>> x[0].tzinfo == x2[0].tzinfo
     False
-    >>> x.tzinfo.key
+    >>> x[0].tzinfo.key
     'UTC'
-    >>> x2.tzinfo.key
+    >>> x2[0].tzinfo.key
     'EST'
     """
 
     dataspace_is_numerical = False
     domain = (
-        datetime.datetime(datetime.MINYEAR, 1, 1, tzinfo=UTC),
-        datetime.datetime(datetime.MAXYEAR, 12, 31, tzinfo=UTC),
+        datetime(MINYEAR, 1, 1, tzinfo=UTC),
+        datetime(MAXYEAR, 12, 31, tzinfo=UTC),
     )
     breaks_ = staticmethod(date_breaks())
     format = staticmethod(date_format())
@@ -676,32 +683,29 @@ class datetime_trans(trans):
         super().__init__(**kwargs)
         self.tz = tz
 
-    def transform(self, x):
+    def transform(self, x: AnyVector) -> FloatVector:
         """
         Transform from date to a numerical format
         """
-        if isinstance(x, Iterable) and not len(x):
-            return []
+        if not len(x):
+            return np.array([])
 
+        x0 = next(iter(x))
         try:
-            tz = x[0].tzinfo
-        except KeyError:
-            tz = x.iloc[0].tzinfo
-        except TypeError:
-            tz = x.tzinfo
+            tz = x0.tzinfo
         except AttributeError:
             tz = None
 
         if tz and self.tz is None:
             self.tz = tz
 
-        return date2num(x)
+        return datetime_to_num(x)  # type: ignore
 
-    def inverse(self, x):
+    def inverse(self, x: FloatVector) -> NDArrayDatetime:
         """
         Transform to date from numerical format
         """
-        return num2date(x, tz=self.tz)
+        return num_to_datetime(x, tz=self.tz)
 
     @property
     def tzinfo(self):
@@ -717,32 +721,24 @@ class timedelta_trans(trans):
     """
 
     dataspace_is_numerical = False
-    domain = (datetime.timedelta.min, datetime.timedelta.max)
+    domain = (timedelta.min, timedelta.max)
     breaks_ = staticmethod(timedelta_breaks())
     format = staticmethod(timedelta_format())
 
     @staticmethod
-    def transform(x):
+    def transform(x: AnyVector) -> FloatVector:
         """
         Transform from Timeddelta to numerical format
         """
         # microseconds
-        try:
-            x = np.array([_x.total_seconds() * 10**6 for _x in x])
-        except TypeError:
-            x = x.total_seconds() * 10**6
-        return x
+        return np.array([_x.total_seconds() * 10**6 for _x in x])
 
     @staticmethod
-    def inverse(x):
+    def inverse(x: FloatVector) -> AnyVector:
         """
         Transform to Timedelta from numerical format
         """
-        try:
-            x = [datetime.timedelta(microseconds=i) for i in x]
-        except TypeError:
-            x = datetime.timedelta(microseconds=x)
-        return x
+        return np.array([timedelta(microseconds=i) for i in x])
 
 
 class pd_timedelta_trans(trans):
@@ -756,27 +752,19 @@ class pd_timedelta_trans(trans):
     format = staticmethod(timedelta_format())
 
     @staticmethod
-    def transform(x):
+    def transform(x: AnyVector) -> FloatVector:
         """
         Transform from Timeddelta to numerical format
         """
         # nanoseconds
-        try:
-            x = np.array([_x.value for _x in x])
-        except TypeError:
-            x = x.value
-        return x
+        return np.array([_x.value for _x in x])
 
     @staticmethod
-    def inverse(x):
+    def inverse(x: FloatVector) -> AnyVector:
         """
         Transform to Timedelta from numerical format
         """
-        try:
-            x = [pd.Timedelta(int(i)) for i in x]
-        except TypeError:
-            x = pd.Timedelta(int(x))
-        return x
+        return np.array([pd.Timedelta(int(i)) for i in x])
 
 
 class reciprocal_trans(trans):
@@ -836,7 +824,7 @@ def pseudo_log_trans(sigma=1, base=None, **kwargs):
     return _trans
 
 
-def gettrans(t):
+def gettrans(t: str | Callable[[], Type[trans]] | Type[trans] | trans):
     """
     Return a trans object
 

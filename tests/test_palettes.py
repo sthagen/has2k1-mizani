@@ -1,4 +1,3 @@
-import matplotlib as mpl
 import numpy as np
 import numpy.testing as npt
 import pytest
@@ -19,7 +18,6 @@ from mizani.palettes import (
     husl_palette,
     identity_pal,
     manual_pal,
-    ratios_to_colors,
     rescale_pal,
     xkcd_palette,
 )
@@ -148,18 +146,11 @@ def test_gradient_n_pal():
     result = palette([0.2, 0.8])
     assert result[0] == result[1]
 
-    # single color
-    result = palette(0.25)
-    assert result.lower().startswith("#")
-
 
 def test_cmap_pal():
     palette = cmap_pal("viridis")
     result = palette([0, 0.25, 0.5, 0.75, 1])
     assert all(s[0] == "#" and len(s) == 7 for s in result)
-
-    with pytest.warns(FutureWarning):
-        cmap_pal("viridis", 5)
 
 
 def test_cmap_d_pal():
@@ -178,10 +169,7 @@ def test_cmap_d_pal():
 
     # Bad palette
     with pytest.raises(ValueError):
-        palette = cmap_d_pal("Greens")
-
-    with pytest.warns(FutureWarning):
-        cmap_d_pal("viridis", 5)
+        palette = cmap_d_pal("Foobar")
 
 
 def test_desaturate_pal():
@@ -245,9 +233,3 @@ def test_identity_pal():
 
     value = palette(10)
     assert value == 10
-
-
-def test_ratios_to_colors():
-    x = 0.5
-    result = ratios_to_colors(x, mpl.colormaps["viridis"])
-    assert result[0] == "#"

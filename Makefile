@@ -8,7 +8,6 @@ help:
 	@echo "clean-test - remove test and coverage artifacts"
 	@echo "lint - check style with flake8"
 	@echo "test - run tests quickly with the default Python"
-	@echo "test-all - run tests on every Python version with tox"
 	@echo "coverage - check code coverage quickly with the default Python"
 	@echo "doc - generate Sphinx HTML documentation, including API docs"
 	@echo "release - package and upload a release"
@@ -48,11 +47,14 @@ lint-fix:
 
 fix: format-fix lint-fix
 
-test:
-	pytest
+typecheck:
+	pyright
 
-test-all:
-	tox
+test:
+	pytest --runslow
+
+test-fast:
+	pytest
 
 coverage:
 	coverage report -m
@@ -64,8 +66,14 @@ doc:
 	$(MAKE) -C doc html
 	$(BROWSER) doc/_build/html/index.html
 
-release: clean
-	bash ./tools/release.sh
+release-major:
+	@python ./tools/release-checklist.py major
+
+release-minor:
+	@python ./tools/release-checklist.py minor
+
+release-patch:
+	@python ./tools/release-checklist.py patch
 
 build: clean
 	python -m build

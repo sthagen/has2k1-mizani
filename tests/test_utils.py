@@ -1,13 +1,14 @@
-import numpy as np
+from datetime import date, datetime
+
 import pandas as pd
 import pytest
 
 from mizani.utils import (
-    first_element,
     get_categories,
+    get_null_value,
+    get_timezone,
     match,
     min_max,
-    multitype_sort,
     precision,
     round_any,
     same_log10_order_of_magnitude,
@@ -94,38 +95,6 @@ def test_precision():
     assert precision([0, 0]) == 1
 
 
-def test_first_element():
-    x = [3, 4, 5]
-    s = pd.Series(x)
-    a = np.array([3, 4, 5])
-
-    assert first_element(x) == 3
-    assert first_element(s) == 3
-    assert first_element(s[1:]) == 4
-    assert first_element(a) == 3
-    assert first_element(a[1:]) == 4
-
-    with pytest.raises(StopIteration):
-        first_element([])
-
-    with pytest.raises(RuntimeError):
-        first_element(iter(x))
-
-
-def test_multitype_sort():
-    a = ["c", float("nan"), 1, "b", "a", 2.0, 0]
-    result = multitype_sort(a)
-    # Any consecutive elements of the sametype are
-    # sorted
-    for i, x in enumerate(result[1:], start=1):
-        x_prev = result[i - 1]
-        if type(x_prev) is type(x):
-            # cannot compare nan with anything
-            if isinstance(x, float) and (np.isnan(x_prev) or np.isnan(x)):
-                continue
-            assert x_prev <= x
-
-
 def test_same_log10_order_of_magnitude():
     # Default delta
     assert same_log10_order_of_magnitude((2, 8))
@@ -161,3 +130,13 @@ def test_get_categories():
 
     with pytest.raises(TypeError):
         assert categories.equals(get_categories(s))
+
+
+def test_get_timezone():
+    x = [date(2022, 1, 1), date(2022, 12, 1)]
+    assert get_timezone(x) is None
+
+
+def test_get_null_value():
+    x = [datetime(2022, 3, 24)]
+    assert get_null_value(x) is None

@@ -18,14 +18,30 @@ will be invisible. The solution is to restrict the lower bound
 e.g. :math:`[0.1, 1]`. Similarly you can restrict the upper bound
 -- using these functions.
 """
+from __future__ import annotations
 
 import datetime
+import sys
+import typing
 
 import numpy as np
 import pandas as pd
-import pandas.api.types as pdtypes
 
-from .utils import first_element
+from .utils import get_null_value
+
+if typing.TYPE_CHECKING:
+    from typing import Any, Optional
+
+    from mizani.typing import (
+        AnyVector,
+        Float,
+        FloatVector,
+        NDArrayFloat,
+        NumVector,
+        TupleFloat2,
+        TupleFloat4,
+    )
+
 
 __all__ = [
     "censor",
@@ -39,8 +55,14 @@ __all__ = [
     "squish",
 ]
 
+EPSILON = sys.float_info.epsilon
 
-def rescale(x, to=(0, 1), _from=None):
+
+def rescale(
+    x: FloatVector,
+    to: TupleFloat2 = (0, 1),
+    _from: Optional[TupleFloat2] = None,
+) -> NDArrayFloat:
     """
     Rescale numeric vector to have specified minimum and maximum.
 
@@ -69,19 +91,23 @@ def rescale(x, to=(0, 1), _from=None):
     >>> rescale(x, to=(0, 2), _from=(0, 20))
     array([0. , 0.2, 0.4, 0.6, 0.8, 1. ])
     """
-    if _from is None:
-        _from = np.min(x), np.max(x)
-    return np.interp(x, _from, to)
+    __from = (np.min(x), np.max(x)) if _from is None else _from
+    return np.interp(x, __from, to)
 
 
-def rescale_mid(x, to=(0, 1), _from=None, mid=0):
+def rescale_mid(
+    x: NumVector,
+    to: TupleFloat2 = (0, 1),
+    _from: Optional[TupleFloat2] = None,
+    mid: float = 0,
+) -> NDArrayFloat:
     """
     Rescale numeric vector to have specified minimum, midpoint,
     and maximum.
 
     Parameters
     ----------
-    x : array_like | numeric
+    x : array_like
         1D vector of values to manipulate.
     to : tuple
         output range (numeric vector of length two)
@@ -103,40 +129,30 @@ def rescale_mid(x, to=(0, 1), _from=None, mid=0):
     >>> rescale_mid([1, 2, 3], mid=2)
     array([0. , 0.5, 1. ])
     """
-    array_like = True
+    __from: NDArrayFloat = np.array(
+        (np.min(x), np.max(x)) if _from is None else _from
+    )
 
-    try:
-        len(x)
-    except TypeError:
-        array_like = False
-        x = [x]
-
-    if not hasattr(x, "dtype"):
-        x = np.asarray(x)
-
-    if _from is None:
-        _from = np.array([np.min(x), np.max(x)])
-    else:
-        _from = np.asarray(_from)
-
-    if zero_range(_from) or zero_range(to):
+    if zero_range(__from) or zero_range(to):  # type: ignore
         out = np.repeat(np.mean(to), len(x))
     else:
-        extent = 2 * np.max(np.abs(_from - mid))
-        out = (x - mid) / extent * np.diff(to) + np.mean(to)
+        extent = 2 * np.max(np.abs(__from - mid))
+        out = (np.asarray(x) - mid) / extent * np.diff(to) + np.mean(to)
 
-    if not array_like:
-        out = out[0]
     return out
 
 
-def rescale_max(x, to=(0, 1), _from=None):
+def rescale_max(
+    x: FloatVector,
+    to: TupleFloat2 = (0, 1),
+    _from: Optional[TupleFloat2] = None,
+) -> NDArrayFloat:
     """
     Rescale numeric vector to have specified maximum.
 
     Parameters
     ----------
-    x : array_like | numeric
+    x : array_like
         1D vector of values to manipulate.
     to : tuple
         output range (numeric vector of length two)
@@ -153,7 +169,7 @@ def rescale_max(x, to=(0, 1), _from=None):
 
     Examples
     --------
-    >>> x = [0, 2, 4, 6, 8, 10]
+    >>> x = np.array([0, 2, 4, 6, 8, 10])
     >>> rescale_max(x, (0, 3))
     array([0. , 0.6, 1.2, 1.8, 2.4, 3. ])
 
@@ -174,38 +190,27 @@ def rescale_max(x, to=(0, 1), _from=None):
     If the values are the same, they taken on the requested maximum.
     This includes an array of all zeros.
 
-    >>> rescale_max([5, 5, 5])
+    >>> rescale_max(np.array([5, 5, 5]))
     array([1., 1., 1.])
-    >>> rescale_max([0, 0, 0])
+    >>> rescale_max(np.array([0, 0, 0]))
     array([1, 1, 1])
     """
-    array_like = True
+    __from = (np.min(x), np.max(x)) if _from is None else _from
+    _x = np.asarray(x)
 
-    try:
-        len(x)
-    except TypeError:
-        array_like = False
-        x = [x]
-
-    if not hasattr(x, "dtype"):
-        x = np.asarray(x)
-
-    if _from is None:
-        _from = (np.min(x), np.max(x))
-
-    if np.any(x < 0):
-        out = rescale(x, (0, to[1]), _from)
-    elif np.all(x == 0) and _from[1] == 0:
-        out = np.repeat(to[1], len(x))
+    if np.any(_x < 0):
+        out = rescale(x, (0, to[1]), __from)  # type: ignore
+    elif np.all(_x == 0) and __from[1] == 0:
+        out = np.repeat(to[1], len(_x))
     else:
-        out = x / _from[1] * to[1]
+        out = _x / __from[1] * to[1]
 
-    if not array_like:
-        out = out[0]
     return out
 
 
-def squish_infinite(x, range=(0, 1)):
+def squish_infinite(
+    x: FloatVector, range: TupleFloat2 = (0, 1)
+) -> NDArrayFloat:
     """
     Truncate infinite values to a range.
 
@@ -224,25 +229,22 @@ def squish_infinite(x, range=(0, 1)):
 
     Examples
     --------
-    >>> squish_infinite([0, .5, .25, np.inf, .44])
+    >>> arr1 = np.array([0, .5, .25, np.inf, .44])
+    >>> arr2 = np.array([0, -np.inf, .5, .25, np.inf])
+    >>> list(squish_infinite(arr1))
     [0.0, 0.5, 0.25, 1.0, 0.44]
-    >>> squish_infinite([0, -np.inf, .5, .25, np.inf], (-10, 9))
+    >>> list(squish_infinite(arr2, (-10, 9)))
     [0.0, -10.0, 0.5, 0.25, 9.0]
     """
-    xtype = type(x)
-
-    if not hasattr(x, "dtype"):
-        x = np.asarray(x)
-
-    x[x == -np.inf] = range[0]
-    x[x == np.inf] = range[1]
-
-    if not isinstance(x, xtype):
-        x = xtype(x)
-    return x
+    _x = np.asarray(x)
+    _x[np.isneginf(_x)] = range[0]
+    _x[np.isposinf(_x)] = range[1]
+    return _x
 
 
-def squish(x, range=(0, 1), only_finite=True):
+def squish(
+    x: FloatVector, range: TupleFloat2 = (0, 1), only_finite: bool = True
+) -> NDArrayFloat:
     """
     Squish values into range.
 
@@ -262,28 +264,22 @@ def squish(x, range=(0, 1), only_finite=True):
 
     Examples
     --------
-    >>> squish([-1.5, 0.2, 0.5, 0.8, 1.0, 1.2])
-    [0.0, 0.2, 0.5, 0.8, 1.0, 1.0]
+    >>> list(squish([-1.5, 0.2, 0.8, 1.0, 1.2]))
+    [0.0, 0.2, 0.8, 1.0, 1.0]
 
-    >>> squish([-np.inf, -1.5, 0.2, 0.5, 0.8, 1.0, np.inf], only_finite=False)
-    [0.0, 0.0, 0.2, 0.5, 0.8, 1.0, 1.0]
+    >>> list(squish([-np.inf, -1.5, 0.2, 0.8, 1.0, np.inf], only_finite=False))
+    [0.0, 0.0, 0.2, 0.8, 1.0, 1.0]
     """
-    xtype = type(x)
-
-    if not hasattr(x, "dtype"):
-        x = np.asarray(x)
-
-    finite = np.isfinite(x) if only_finite else True
-
-    x[np.logical_and(x < range[0], finite)] = range[0]
-    x[np.logical_and(x > range[1], finite)] = range[1]
-
-    if not isinstance(x, xtype):
-        x = xtype(x)
-    return x
+    _x = np.asarray(x)
+    finite = np.isfinite(_x) if only_finite else True
+    _x[np.logical_and(_x < range[0], finite)] = range[0]
+    _x[np.logical_and(_x > range[1], finite)] = range[1]
+    return _x
 
 
-def censor(x, range=(0, 1), only_finite=True):
+def censor(
+    x: NumVector, range: TupleFloat2 = (0, 1), only_finite: bool = True
+) -> AnyVector:
     """
     Convert any values outside of range to a **NULL** type object.
 
@@ -304,13 +300,13 @@ def censor(x, range=(0, 1), only_finite=True):
 
     Examples
     --------
-    >>> a = [1, 2, np.inf, 3, 4, -np.inf, 5]
-    >>> censor(a, (0, 10))
-    [1, 2, inf, 3, 4, -inf, 5]
-    >>> censor(a, (0, 10), False)
-    [1, 2, nan, 3, 4, nan, 5]
-    >>> censor(a, (2, 4))
-    [nan, 2, inf, 3, 4, -inf, nan]
+    >>> a = np.array([1, 2, np.inf, 3, 4, -np.inf, 5])
+    >>> list(censor(a, (0, 10)))
+    [1.0, 2.0, inf, 3.0, 4.0, -inf, 5.0]
+    >>> list(censor(a, (0, 10), False))
+    [1.0, 2.0, nan, 3.0, 4.0, nan, 5.0]
+    >>> list(censor(a, (2, 4)))
+    [nan, 2.0, inf, 3.0, 4.0, -inf, nan]
 
     Notes
     -----
@@ -326,39 +322,9 @@ def censor(x, range=(0, 1), only_finite=True):
 
     """
     if not len(x):
-        return x
+        return np.array([])
 
-    py_time_types = (datetime.datetime, datetime.timedelta)
-    np_pd_time_types = (
-        pd.Timestamp,
-        pd.Timedelta,
-        np.datetime64,
-        np.timedelta64,
-    )
-    x0 = first_element(x)
-
-    # Yes, we want type not isinstance
-    if type(x0) in py_time_types:
-        return _censor_with(x, range, "NaT")
-
-    if not hasattr(x, "dtype") and isinstance(x0, np_pd_time_types):
-        return _censor_with(x, range, type(x0)("NaT"))
-
-    x_array = np.asarray(x)
-    if pdtypes.is_number(x0) and not isinstance(x0, np.timedelta64):
-        null = float("nan")
-    elif isinstance(x0, pd.Timestamp):
-        null = pd.Timestamp("NaT")
-    elif pdtypes.is_datetime64_dtype(x_array):
-        null = np.datetime64("NaT")
-    elif isinstance(x0, pd.Timedelta):
-        null = pd.Timedelta("NaT")
-    elif pdtypes.is_timedelta64_dtype(x_array):
-        null = np.timedelta64("NaT")
-    else:
-        raise ValueError(
-            "Do not know how to censor values of type " "{}".format(type(x0))
-        )
+    null = get_null_value(x)
 
     if only_finite:
         try:
@@ -368,36 +334,25 @@ def censor(x, range=(0, 1), only_finite=True):
     else:
         finite = np.repeat(True, len(x))
 
-    if hasattr(x, "dtype"):
-        # Ignore RuntimeWarning when x contains nans
-        with np.errstate(invalid="ignore"):
-            outside = (x < range[0]) | (x > range[1])
-        bool_idx = finite & outside
-        x = x.copy()
-        x[bool_idx] = null
-    else:
-        x = [
-            null if not range[0] <= val <= range[1] and f else val
-            for val, f in zip(x, finite)
-        ]
-
-    return x
+    # Ignore RuntimeWarning when x contains nans
+    with np.errstate(invalid="ignore"):
+        outside = (x < range[0]) | (x > range[1])  # type: ignore
+    bool_idx = finite & outside
+    res = x.copy()
+    if bool_idx.any():
+        if res.dtype.kind == "i":
+            res = np.asarray(res, dtype=float)
+        res[bool_idx] = null
+    return res
 
 
-def _censor_with(x, range, value=None):
-    """
-    Censor any values outside of range with ``None``
-    """
-    return [val if range[0] <= val <= range[1] else value for val in x]
-
-
-def zero_range(x, tol=np.finfo(float).eps * 100):
+def zero_range(x: tuple[Any, Any], tol: float = EPSILON * 100) -> bool:
     """
     Determine if range of vector is close to zero.
 
     Parameters
     ----------
-    x : array_like | numeric
+    x : array_like
         Value(s) to check. If it is an array_like, it
         should be of length 2.
     tol : float
@@ -420,42 +375,34 @@ def zero_range(x, tol=np.finfo(float).eps * 100):
 
     .. _machine epsilon: https://en.wikipedia.org/wiki/Machine_epsilon
     """
-    try:
-        if len(x) == 1:
-            return True
-    except TypeError:
-        return True
-
-    if len(x) != 2:
-        raise ValueError("x must be length 1 or 2")
-
-    # Also deals with array_likes that have non-standard indices
-    x = sorted(x)
-    low, high = x
+    if x[0] > x[1]:
+        x = x[1], x[0]
 
     # datetime - pandas, cpython
-    if isinstance(low, (pd.Timestamp, datetime.datetime)):
-        from matplotlib.dates import date2num
+    if isinstance(x[0], (pd.Timestamp, datetime.datetime)):
+        from mizani._core.dates import datetime_to_num
 
-        # date2num include timezone info, .toordinal() does not
-        low, high = date2num(x)
+        l, h = datetime_to_num(x)
+        return l == h
     # datetime - numpy
-    elif isinstance(low, np.datetime64):
-        return low == high
+    elif isinstance(x[0], np.datetime64):
+        return x[0] == x[1]
     # timedelta - pandas, cpython
-    elif isinstance(low, (pd.Timedelta, datetime.timedelta)):
-        low, high = low.total_seconds(), high.total_seconds()
+    elif isinstance(x[0], (pd.Timedelta, datetime.timedelta)):
+        return x[0].total_seconds() == x[1].total_seconds()
     # timedelta - numpy
-    elif isinstance(low, np.timedelta64):
-        return low == high
-    elif not isinstance(low, (float, int, np.number)):
+    elif isinstance(x[0], np.timedelta64):
+        return x[0] == x[1]
+    elif not isinstance(x[0], (float, int, np.number)):
         raise TypeError(
             "zero_range objects cannot work with objects "
-            "of type '{}'".format(type(low))
+            "of type '{}'".format(type(x[0]))
         )
+    else:
+        low, high = x
 
     if any(np.isnan((low, high))):
-        return np.nan
+        return True
 
     if low == high:
         return True
@@ -470,7 +417,9 @@ def zero_range(x, tol=np.finfo(float).eps * 100):
     return ((high - low) / low_abs) < tol
 
 
-def expand_range(range, mul=0, add=0, zero_width=1):
+def expand_range(
+    range: TupleFloat2, mul: Float = 0, add: Float = 0, zero_width: float = 1
+) -> TupleFloat2:
     """
     Expand a range with a multiplicative or additive constant
 
@@ -516,24 +465,23 @@ def expand_range(range, mul=0, add=0, zero_width=1):
     :mod:`datetime` module.
     """
     x = range
-
-    # Enforce tuple
-    try:
-        x[0]
-    except TypeError:
-        x = (x, x)
+    low, high = x
 
     # The expansion cases
     if zero_range(x):
-        new = x[0] - zero_width / 2, x[0] + zero_width / 2
+        new = low - zero_width / 2, low + zero_width / 2
     else:
-        dx = (x[1] - x[0]) * mul + add
-        new = x[0] - dx, x[1] + dx
+        dx = (high - low) * mul + add
+        new = low - dx, high + dx
 
-    return new
+    return new  # type: ignore
 
 
-def expand_range_distinct(range, expand=(0, 0, 0, 0), zero_width=1):
+def expand_range_distinct(
+    range: TupleFloat2,
+    expand: TupleFloat2 | TupleFloat4 = (0, 0, 0, 0),
+    zero_width: float = 1,
+) -> TupleFloat2:
     """
     Expand a range with a multiplicative or additive constants
 
@@ -583,8 +531,11 @@ def expand_range_distinct(range, expand=(0, 0, 0, 0), zero_width=1):
     """
 
     if len(expand) == 2:
-        expand = tuple(expand) * 2
+        low_mul = high_mul = expand[0]
+        low_add = high_add = expand[1]
+    else:
+        low_mul, low_add, high_mul, high_add = expand
 
-    lower = expand_range(range, expand[0], expand[1], zero_width)[0]
-    upper = expand_range(range, expand[2], expand[3], zero_width)[1]
-    return (lower, upper)
+    lower = expand_range(range, low_mul, low_add, zero_width)[0]
+    upper = expand_range(range, high_mul, high_add, zero_width)[1]
+    return (lower, upper)  # type: ignore

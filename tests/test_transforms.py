@@ -1,18 +1,14 @@
 from datetime import datetime, timedelta
 from types import FunctionType, MethodType
 
-try:
-    from zoneinfo import ZoneInfo
-except ImportError:
-    # python < 3.9
-    from backports.zoneinfo import ZoneInfo
-
 import numpy as np
 import numpy.testing as npt
 import pandas as pd
 import pytest
+from numpy.testing import assert_equal
+from zoneinfo import ZoneInfo
 
-from mizani.breaks import minor_breaks, mpl_breaks
+from mizani.breaks import extended_breaks, minor_breaks
 from mizani.transforms import (
     asn_trans,
     atanh_trans,
@@ -41,7 +37,7 @@ arr = np.arange(1, 100)
 
 
 def test_trans():
-    with pytest.raises(KeyError):
+    with pytest.raises(AttributeError):
         trans(universe=True)
 
 
@@ -181,7 +177,10 @@ def test_logn_trans():
     _test_trans(log3_trans, arr)
 
     log4_trans = log_trans(
-        4, domain=(0.1, 100), breaks=mpl_breaks(), minor_breaks=minor_breaks()
+        4,
+        domain=(0.1, 100),
+        breaks=extended_breaks(),
+        minor_breaks=minor_breaks(),
     )
     _test_trans(log4_trans, arr)
 
@@ -244,13 +243,6 @@ def test_datetime_trans():
     s2 = t.inverse(st)
     assert all(s == s2)
 
-    # Scalar
-    x = datetime(2022, 1, 20, tzinfo=UTC)
-    t = datetime_trans()
-    xt = t.transform(x)
-    x2 = t.inverse(xt)
-    assert x == x2
-
 
 def test_datetime_trans_tz():
     EST = ZoneInfo("EST")
@@ -261,18 +253,18 @@ def test_datetime_trans_tz():
     # Same trans as data
     t = datetime_trans()
     x2 = t.inverse(t.transform(x))
-    assert x == x2
+    assert_equal(x, x2)
     assert all(val.tzinfo == EST for val in x2)
 
     # UTC trans
     t = datetime_trans(UTC)
     x2 = t.inverse(t.transform(x))
-    assert x == x2
+    assert_equal(x, x2)
     assert all(val.tzinfo == UTC for val in x2)
 
     t = datetime_trans("MST")
     assert t.tzinfo == t.tz
-    assert t.transform([]) == []
+    assert_equal(t.transform([]), np.array([]))
 
 
 def test_timedelta_trans():
@@ -281,7 +273,6 @@ def test_timedelta_trans():
     xt = t.transform(x)
     x2 = t.inverse(xt)
     assert all(a == b for a, b in zip(x, x2))
-    assert x[0] == t.inverse(t.transform(x[0]))
 
 
 def test_pd_timedelta_trans():
@@ -290,4 +281,3 @@ def test_pd_timedelta_trans():
     xt = t.transform(x)
     x2 = t.inverse(xt)
     assert all(a == b for a, b in zip(x, x2))
-    assert x[0] == t.inverse(t.transform(x[0]))

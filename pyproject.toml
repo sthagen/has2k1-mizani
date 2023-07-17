@@ -12,7 +12,6 @@ classifiers = [
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: BSD License",
     "Programming Language :: Python :: 3 :: Only",
-    "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
@@ -22,11 +21,9 @@ dependencies = [
     "numpy>=1.19.0",
     "scipy>=1.5.0",
     "pandas>=1.3.5",
-    "matplotlib>=3.5.0",
-    "backports.zoneinfo;python_version<'3.9'",
     "tzdata;platform_system=='Windows' or platform_system=='Emscripten'"
 ]
-requires-python = ">=3.8"
+requires-python = ">=3.9"
 
 [project.optional-dependencies]
 all = [
@@ -58,7 +55,13 @@ test = [
 
 dev = [
     "notebook",
-    "twine"
+    "twine",
+    "mizani[typing]",
+]
+
+typing = [
+    "pyright",
+    "pandas-stubs",
 ]
 
 [project.urls]
@@ -90,7 +93,8 @@ version_scheme = 'post-release'
 ########## Tool - pytest ##########
 [tool.pytest.ini_options]
 testpaths = [
-    "mizani"
+    "mizani",
+    "tests"
 ]
 addopts = "--pyargs --cov=mizani --cov-report=xml --doctest-modules --doctest-ignore-import-errors"
 doctest_optionflags = "ALLOW_BYTES NORMALIZE_WHITESPACE"
@@ -113,7 +117,7 @@ omit = [
 disable_warnings = ["include-ignored"]
 
 [tool.coverage.report]
-exclude_lines = [
+exclude_also = [
    "pragma: no cover",
    "^def test_",
    "if __name__ == .__main__.:",
@@ -121,8 +125,54 @@ exclude_lines = [
    "if typing.TYPE_CHECKING:",
    "except ImportError:",
    "except PackageNotFoundError:",
+   "@overload",
+   "\\s{4,}\\.\\.\\."
 ]
 precision = 1
+
+########## Tool - Pyright ##########
+[tool.pyright]
+# Paths of directories or files that should be included. If no paths
+# are specified, pyright defaults to the directory that contains the
+# config file. Paths may contain wildcard characters ** (a directory or
+# multiple levels of directories), * (a sequence of zero or more
+# characters), or ? (a single character). If no include paths are
+# specified, the root path for the workspace is assumed.
+include = [
+    "mizani/"
+]
+
+# Paths of directories or files whose diagnostic output (errors and
+# warnings) should be suppressed even if they are an included file or
+# within the transitive closure of an included file. Paths may contain
+# wildcard characters ** (a directory or multiple levels of
+# directories), * (a sequence of zero or more characters), or ? (a
+# single character).
+ignore = []
+
+# Set of identifiers that should be assumed to contain a constant
+# value wherever used within this program. For example, { "DEBUG": true
+# } indicates that pyright should assume that the identifier DEBUG will
+# always be equal to True. If this identifier is used within a
+# conditional expression (such as if not DEBUG:) pyright will use the
+# indicated value to determine whether the guarded block is reachable
+# or not. Member expressions that reference one of these constants
+# (e.g. my_module.DEBUG) are also supported.
+defineConstant = { DEBUG = true }
+
+# typeCheckingMode = "strict"
+useLibraryCodeForTypes = true
+reportUnnecessaryTypeIgnoreComment = true
+# reportUnsupportedDunderAll = false
+
+
+# Specifies a list of execution environments (see below). Execution
+# environments are searched from start to finish by comparing the path
+# of a source file with the root path specified in the execution
+# environment.
+executionEnvironments = []
+
+stubPath = ""
 
 ########## Tool - Ruff ##########
 [tool.ruff]
@@ -142,8 +192,8 @@ exclude = [
 # Allow unused variables when underscore-prefixed.
 dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
 
-# Assume Python 3.8.
-target-version = "py38"
+# Assume Python 3.9.
+target-version = "py39"
 
 ########## Tool - Black ##########
 [tool.black]

@@ -9,25 +9,35 @@ values as understood by a specific scale and return string
 representations of those values. Manipulating the string
 representation of a value helps improve readability of the guide.
 """
-import re
-from bisect import bisect_right
+from __future__ import annotations
 
-try:
-    from zoneinfo import ZoneInfo
-except ImportError:
-    # python < 3.9
-    from backports.zoneinfo import ZoneInfo
+import re
+import typing
+from bisect import bisect_right
+from dataclasses import dataclass
+from zoneinfo import ZoneInfo
 
 import numpy as np
 
 from .breaks import timedelta_helper
 from .utils import (
-    get_timezone,
     match,
     precision,
     round_any,
     same_log10_order_of_magnitude,
 )
+
+if typing.TYPE_CHECKING:
+    from datetime import datetime, tzinfo
+    from typing import Literal, Optional, Sequence
+
+    from mizani.typing import (
+        BytesSymbol,
+        DurationUnit,
+        FloatArrayLike,
+        NDArrayTimedelta,
+        TupleInt2,
+    )
 
 __all__ = [
     "comma_format",
@@ -37,7 +47,7 @@ __all__ = [
     "percent_format",
     "scientific_format",
     "date_format",
-    "mpl_format",
+    "number_format",
     "log_format",
     "timedelta_format",
     "pvalue_format",
@@ -45,7 +55,10 @@ __all__ = [
     "number_bytes_format",
 ]
 
+UTC = ZoneInfo("UTC")
 
+
+@dataclass
 class custom_format:
     """
     Custom format
@@ -68,11 +81,10 @@ class custom_format:
     ['3.99 USD', '2.00 USD', '42.42 USD']
     """
 
-    def __init__(self, fmt="{}", style="new"):
-        self.fmt = fmt
-        self.style = style
+    fmt: str = "{}"
+    style: Literal["old", "new"] = "new"
 
-    def __call__(self, x):
+    def __call__(self, x: FloatArrayLike) -> Sequence[str]:
         """
         Format a sequence of inputs
 
@@ -95,6 +107,7 @@ class custom_format:
 
 
 # formatting functions
+@dataclass
 class currency_format:
     """
     Currency formatter
@@ -120,13 +133,12 @@ class currency_format:
     ['C$1', 'C$99', 'C$5', 'C$9', 'C$4,500']
     """
 
-    def __init__(self, prefix="$", suffix="", digits=2, big_mark=""):
-        self.prefix = prefix
-        self.suffix = suffix
-        self.digits = digits
-        self.big_mark = big_mark
+    prefix: str = "$"
+    suffix: str = ""
+    digits: int = 2
+    big_mark: str = ""
 
-    def __call__(self, x):
+    def __call__(self, x: FloatArrayLike) -> Sequence[str]:
         """
         Format a sequence of inputs
 
@@ -165,6 +177,7 @@ dollar_format = currency_format
 dollar = dollar_format()
 
 
+@dataclass
 class comma_format:
     """
     Format number with commas separating thousands
@@ -180,9 +193,11 @@ class comma_format:
     ['1,000', '2', '33,000', '400']
     """
 
-    def __init__(self, digits=0):
+    digits: int = 0
+
+    def __post_init__(self):
         self.formatter = currency_format(
-            prefix="", digits=digits, big_mark=","
+            prefix="", digits=self.digits, big_mark=","
         )
 
     def __call__(self, x):
@@ -202,6 +217,7 @@ class comma_format:
         return self.formatter(x)
 
 
+@dataclass
 class percent_format:
     """
     Percent formatter
@@ -223,10 +239,12 @@ class percent_format:
     ['65.4%', '89.6%', '10.0%']
     """
 
-    def __init__(self, use_comma=False):
-        self.big_mark = "," if use_comma else ""
+    use_comma: bool = False
 
-    def __call__(self, x):
+    def __post_init__(self):
+        self.big_mark = "," if self.use_comma else ""
+
+    def __call__(self, x: FloatArrayLike) -> Sequence[str]:
         """
         Format a sequence of inputs
 
@@ -266,6 +284,7 @@ class percent_format:
 percent = percent_format()
 
 
+@dataclass
 class scientific_format:
     """
     Scientific formatter
@@ -289,18 +308,19 @@ class scientific_format:
     .. _machine epsilon: https://en.wikipedia.org/wiki/Machine_epsilon
     """
 
-    def __init__(self, digits=3):
-        tpl = "".join(["{:.", str(digits), "e}"])
-        self.formatter = custom_format(tpl)
+    digits: int = 3
 
-    def __call__(self, x):
+    def __post_init__(self):
+        tpl = f"{{:.{self.digits}e}}"
+        self.formatter = custom_format(tpl)
+        self.trailling_zeros_pattern = re.compile(r"(0+)e")
+
+    def __call__(self, x: FloatArrayLike) -> Sequence[str]:
         if len(x) == 0:
             return []
 
-        zeros_re = re.compile(r"(0+)e")
-
         def count_zeros(s):
-            match = zeros_re.search(s)
+            match = self.trailling_zeros_pattern.search(s)
             if match:
                 return len(match.group(1))
             else:
@@ -317,65 +337,39 @@ class scientific_format:
 scientific = scientific_format()
 
 
-def _format(formatter, x):
+@dataclass
+class number_format:
     """
-    Helper to format and tidy up
-    """
-    # For MPL to play nice
-    formatter.create_dummy_axis()
-    # For sensible decimal places
-    formatter.set_locs([val for val in x if ~np.isnan(val)])
-    try:
-        oom = int(formatter.orderOfMagnitude)
-    except AttributeError:
-        oom = 0
-    labels = [formatter(tick) for tick in x]
+    Format floats
 
-    # Remove unnecessary decimals
-    pattern = re.compile(r"\.0+$")
-    for i, label in enumerate(labels):
-        match = pattern.search(label)
-        if match:
-            labels[i] = pattern.sub("", label)
-
-    # MPL does not add the exponential component
-    if oom:
-        labels = ["{}e{}".format(s, oom) if s != "0" else s for s in labels]
-    return labels
-
-
-class mpl_format:
-    """
-    Format using MPL formatter for scalars
+    Parameters
+    ----------
+    digits : int
+        Number of digits after the decimal point.
 
     Examples
     --------
-    >>> mpl_format()([.654, .8963, .1])
+    >>> number_format()([.654, .8963, .1])
     ['0.6540', '0.8963', '0.1000']
     """
 
-    def __init__(self):
-        from matplotlib.ticker import ScalarFormatter
+    digits: int = 4
 
-        self.formatter = ScalarFormatter(useOffset=False)
+    def __post_init__(self):
+        # New style format string e.g. '{:1.4f}'
+        self.fmt = f"{{:1.{self.digits}f}}".format
+        self._zeros_pattern = re.compile(r"\.0+$")
 
-    def __call__(self, x):
-        """
-        Format a sequence of inputs
-
-        Parameters
-        ----------
-        x : array
-            Input
-
-        Returns
-        -------
-        out : list
-            List of strings.
-        """
-        return _format(self.formatter, x)
+    def __call__(self, x: FloatArrayLike) -> Sequence[str]:
+        labels = [self.fmt(val) for val in x]
+        for i, label in enumerate(labels):
+            match = self._zeros_pattern.search(label)
+            if match:
+                labels[i] = self._zeros_pattern.sub("", label)
+        return labels
 
 
+@dataclass
 class log_format:
     """
     Log Formatter
@@ -404,12 +398,11 @@ class log_format:
     ['$10^{-4}$', '$10^{-1}$', '$10^{4}$']
     """
 
-    def __init__(self, base=10, exponent_limits=(-4, 4), mathtex=False):
-        self.base = base
-        self.exponent_limits = exponent_limits
-        self.mathtex = mathtex
+    base: float = 10
+    exponent_limits: TupleInt2 = (-4, 4)
+    mathtex: bool = False
 
-    def _tidyup_labels(self, labels):
+    def _tidyup_labels(self, labels: Sequence[str]) -> Sequence[str]:
         """
         Make all labels uniform in format
 
@@ -426,7 +419,7 @@ class log_format:
             Labels
         """
 
-        def remove_zeroes(s):
+        def remove_zeroes(s: str) -> str:
             """
             Remove unnecessary zeros for float string s
             """
@@ -440,13 +433,13 @@ class log_format:
                     s = mantissa
             return s
 
-        def as_exp(s):
+        def as_exp(s: str) -> str:
             """
             Float string s as in exponential format
             """
             return s if "e" in s else "{:1.0e}".format(float(s))
 
-        def as_mathtex(s):
+        def as_mathtex(s: str) -> str:
             """
             Mathtex for maplotlib
             """
@@ -471,7 +464,7 @@ class log_format:
 
         return labels
 
-    def __call__(self, x):
+    def __call__(self, x: FloatArrayLike) -> Sequence[str]:
         """
         Format a sequence of inputs
 
@@ -494,15 +487,11 @@ class log_format:
             xmax = int(np.ceil(np.log10(np.max(x))))
             emin, emax = self.exponent_limits
             all_multiples = np.all([np.log10(num).is_integer() for num in x])
-            # Order of magnitude of the minimum and maximum
-            if same_log10_order_of_magnitude(x):
-                f = mpl_format()
-                f.formatter.set_powerlimits((emin, emax))
-                return f(x)
-            elif all_multiples and (xmin <= emin or xmax >= emax):
-                fmt = "{:1.0e}"
-            else:
-                fmt = "{:g}"
+            beyond_threshold = xmin <= emin or emax <= xmax
+            use_exponents = (
+                same_log10_order_of_magnitude(x) or all_multiples
+            ) and beyond_threshold
+            fmt = "{:1.0e}" if use_exponents else "{:g}"
             labels = [fmt.format(num) for num in x]
             return self._tidyup_labels(labels)
         else:
@@ -531,6 +520,7 @@ class log_format:
             return labels
 
 
+@dataclass
 class date_format:
     """
     Datetime formatter
@@ -580,15 +570,14 @@ class date_format:
     ['2010-01-01 00:00', '2010-01-01 07:00']
     """
 
-    def __init__(self, fmt="%Y-%m-%d", tz=None):
-        if isinstance(tz, str):
-            tz = ZoneInfo(tz)
-        from matplotlib.dates import DateFormatter
+    fmt: str = "%Y-%m-%d"
+    tz: Optional[tzinfo] = None
 
-        self.formatter = DateFormatter(fmt, tz=tz)
-        self.tz = tz
+    def __post_init__(self):
+        if isinstance(self.tz, str):
+            self.tz = ZoneInfo(self.tz)
 
-    def __call__(self, x):
+    def __call__(self, x: Sequence[datetime]) -> Sequence[str]:
         """
         Format a sequence of inputs
 
@@ -602,18 +591,12 @@ class date_format:
         out : list
             List of strings.
         """
-        from matplotlib.dates import date2num
-
-        # Formatter timezone
-        if self.tz is None and len(x):
-            self.formatter.tz = get_timezone(x)
-
-        # The formatter is tied to axes and takes
-        # breaks in ordinal format.
-        x = [date2num(val) for val in x]
-        return _format(self.formatter, x)
+        if self.tz is not None:
+            x = [d.astimezone(self.tz) for d in x]
+        return [d.strftime(self.fmt) for d in x]
 
 
+@dataclass
 class timedelta_format:
     """
     Timedelta formatter
@@ -655,26 +638,26 @@ class timedelta_format:
     ['0', '31', '62', '93', '124']
     """
 
-    abbreviations = {
-        "ns": "ns",
-        "us": "us",
-        "ms": "ms",
-        "s": "s",
-        "m": " minute",
-        "h": " hour",
-        "d": " day",
-        "w": " week",
-        "M": " month",
-        "y": " year",
-    }
+    units: Optional[DurationUnit] = None
+    add_units: bool = True
+    usetex: bool = False
 
-    def __init__(self, units=None, add_units=True, usetex=False):
-        self.units = units
-        self.add_units = add_units
-        self.usetex = usetex
-        self._mpl_format = mpl_format()
+    def __post_init__(self):
+        self._base_format = number_format()
+        self.abbreviations = {
+            "ns": "ns",
+            "us": "us",
+            "ms": "ms",
+            "s": "s",
+            "m": " minute",
+            "h": " hour",
+            "d": " day",
+            "w": " week",
+            "M": " month",
+            "y": " year",
+        }
 
-    def __call__(self, x):
+    def __call__(self, x: NDArrayTimedelta) -> Sequence[str]:
         if len(x) == 0:
             return []
 
@@ -684,7 +667,7 @@ class timedelta_format:
         ulabel = self.abbreviations[_units]
         if ulabel == "us" and self.usetex:
             ulabel = r"$\mu s$"
-        _labels = self._mpl_format(values)
+        _labels = self._base_format(values)
 
         if not self.add_units:
             return _labels
@@ -698,6 +681,7 @@ class timedelta_format:
         return labels
 
 
+@dataclass
 class pvalue_format:
     """
     p-values Formatter
@@ -720,11 +704,10 @@ class pvalue_format:
     ['p=0.9', 'p=0.1', 'p<0.1', 'p<0.1', 'p<0.1']
     """
 
-    def __init__(self, accuracy=0.001, add_p=False):
-        self.accuracy = accuracy
-        self.add_p = add_p
+    accuracy: float = 0.001
+    add_p: float = False
 
-    def __call__(self, x):
+    def __call__(self, x: FloatArrayLike) -> Sequence[str]:
         """
         Format a sequence of inputs
 
@@ -743,34 +726,35 @@ class pvalue_format:
 
         if self.add_p:
             eq_fmt = "p={:g}".format
-            below_label = "p<{:g}".format(self.accuracy)
+            below_label = f"p<{self.accuracy:g}"
         else:
             eq_fmt = "{:g}".format
-            below_label = "<{:g}".format(self.accuracy)
+            below_label = f"<{self.accuracy:g}"
 
         labels = [below_label if b else eq_fmt(i) for i, b in zip(x, below)]
         return labels
 
 
-def ordinal(n, prefix="", suffix="", big_mark=""):
+def ordinal(n: float, prefix="", suffix="", big_mark=""):
     # General Case: 0th, 1st, 2nd, 3rd, 4th, 5th, 6th, 7th, 8th, 9th
     # Special Case: 10th, 11th, 12th, 13th
     n = int(n)
     idx = np.min((n % 10, 4))
-    _suffix = ["th", "st", "nd", "rd", "th"][idx]
+    _suffix = ("th", "st", "nd", "rd", "th")[idx]
     if 11 <= (n % 100) <= 13:
         _suffix = "th"
 
     if big_mark:
-        s = "{:,}".format(n)
+        s = f"{n:,}"
         if big_mark != ",":
             s = s.replace(",", big_mark)
     else:
-        s = "{}".format(n)
+        s = f"{n}"
 
-    return "{}{}{}{}".format(prefix, s, _suffix, suffix)
+    return f"{prefix}{s}{_suffix}{suffix}"
 
 
+@dataclass
 class ordinal_format:
     """
     Ordinal Formatter
@@ -793,18 +777,18 @@ class ordinal_format:
     ['11th Number', '12th Number', '13th Number', '14th Number']
     """
 
-    def __init__(self, prefix="", suffix="", big_mark=""):
-        self.prefix = prefix
-        self.suffix = suffix
-        self.big_mark = big_mark
+    prefix: str = ""
+    suffix: str = ""
+    big_mark: str = ""
 
-    def __call__(self, x):
+    def __call__(self, x: FloatArrayLike) -> Sequence[str]:
         labels = [
             ordinal(num, self.prefix, self.suffix, self.big_mark) for num in x
         ]
         return labels
 
 
+@dataclass
 class number_bytes_format:
     """
     Bytes Formatter
@@ -830,14 +814,14 @@ class number_bytes_format:
     ['1 kB', '1 MB', '400 kB']
     """
 
-    def __init__(self, symbol="auto", units="binary", fmt="{:.0f} "):
-        self.symbol = symbol
-        self.units = units
-        self.fmt = fmt
+    symbol: Literal["auto"] | BytesSymbol = "auto"
+    units: Literal["binary", "si"] = "binary"
+    fmt: str = "{:.0f} "
 
-        if units == "si":
+    def __post_init__(self):
+        if self.units == "si":
             self.base = 1000
-            self._all_symbols = [
+            self._all_symbols = (
                 "B",
                 "kB",
                 "MB",
@@ -847,10 +831,10 @@ class number_bytes_format:
                 "EB",
                 "ZB",
                 "YB",
-            ]
+            )
         else:
             self.base = 1024
-            self._all_symbols = [
+            self._all_symbols = (
                 "B",
                 "KiB",
                 "MiB",
@@ -860,14 +844,14 @@ class number_bytes_format:
                 "EiB",
                 "ZiB",
                 "YiB",
-            ]
+            )
 
         # possible exponents of base: eg 1000^1, 1000^2, 1000^3, ...
         exponents = np.arange(1, len(self._all_symbols) + 1, dtype=float)
         self._powers = self.base**exponents
-        self._validate_symbol(symbol, ["auto"] + self._all_symbols)
+        self._validate_symbol(self.symbol, ("auto",) + self._all_symbols)
 
-    def __call__(self, x):
+    def __call__(self, x: FloatArrayLike) -> Sequence[str]:
         _all_symbols = self._all_symbols
         symbol = self.symbol
         if symbol == "auto":
@@ -884,7 +868,7 @@ class number_bytes_format:
         labels = [fmt(v, s) for v, s in zip(values, symbols)]
         return labels
 
-    def _validate_symbol(self, symbol, allowed_symbols):
+    def _validate_symbol(self, symbol: str, allowed_symbols: Sequence[str]):
         if symbol not in allowed_symbols:
             raise ValueError(
                 "Symbol must be one of {}".format(allowed_symbols)

@@ -6,6 +6,7 @@ import numpy.testing as npt
 import pandas as pd
 import pandas.testing as pdt
 import pytest
+from numpy.testing import assert_equal
 from pytest import approx
 
 from mizani.bounds import (
@@ -24,7 +25,7 @@ NaT_type = type(pd.NaT)
 
 
 def test_censor():
-    x = list(range(10))
+    x = np.arange(10)
     xx = censor(x, (2, 8))
     assert np.isnan(xx[0])
     assert np.isnan(xx[1])
@@ -41,33 +42,32 @@ def test_censor():
 
     # datetime
     limits = datetime(2010, 1, 1), datetime(2020, 1, 1)
-    x = [datetime(year, 1, 1) for year in range(2008, 2023)]
+    x = np.array([datetime(year, 1, 1) for year in range(2008, 2023)])
     result = censor(x, limits)
-    assert result[2:-2] == x[2:-2]
-    assert result[:2] == ["NaT", "NaT"]
-    assert result[-2:] == ["NaT", "NaT"]
+    assert_equal(result[2:-2], x[2:-2])
+    assert_equal(result[:2], [None, None])
+    assert_equal(result[-2:], [None, None])
 
     # timedelta
     limits = timedelta(seconds=2010), timedelta(seconds=2020)
-    x = [timedelta(seconds=i) for i in range(2008, 2023)]
+    x = np.array([timedelta(seconds=i) for i in range(2008, 2023)])
     result = censor(x, limits)
-    assert result[2:-2] == x[2:-2]
-    assert result[:2] == ["NaT", "NaT"]
-    assert result[-2:] == ["NaT", "NaT"]
+    assert_equal(result[2:-2], x[2:-2])
+    assert_equal(result[:2], [None, None])
+    assert_equal(result[-2:], [None, None])
 
     # pd.timestamp
     limits = pd.Timestamp(200 * 1e16), pd.Timestamp(205 * 1e16)
-    x = [pd.Timestamp(i * 1e16) for i in range(198, 208)]
+    x = np.array([pd.Timestamp(i * 1e16) for i in range(198, 208)])
     result = censor(x, limits)
-    assert result[2:-2] == x[2:-2]
-    assert all(isinstance(val, NaT_type) for val in result[:2])
-    assert all(isinstance(val, NaT_type) for val in result[-2:])
+    assert_equal(result[2:-2], x[2:-2])
+    assert_equal(result[:2], [None, None])
+    assert_equal(result[-2:], [None, None])
 
     x1 = np.array(x)
     result = censor(x1, limits)
-    npt.assert_array_equal(result[2:-2], x1[2:-2])
-    assert all(isinstance(val, NaT_type) for val in result[:2])
-    assert all(isinstance(val, NaT_type) for val in result[-2:])
+    assert all(val is None for val in result[:2])
+    assert all(val is None for val in result[-2:])
 
     x2 = pd.Series(x)
     result = censor(x2, limits)
@@ -80,24 +80,23 @@ def test_censor():
     x = [np.datetime64(i, "D") for i in range(198, 208)]
     x2 = np.array(x)
     result = censor(x2, limits)
-    npt.assert_array_equal(result[2:-2], x2[2:-2])
+    assert_equal(result[2:-2], x2[2:-2])
     assert all(isinstance(val, np.datetime64) for val in result[:2])
     assert all(isinstance(val, np.datetime64) for val in result[-2:])
 
     # pd.Timedelta
     limits = pd.Timedelta(seconds=2010), pd.Timedelta(seconds=2020)
-    x = [pd.Timedelta(seconds=i) for i in range(2008, 2023)]
+    x = np.array([pd.Timedelta(seconds=i) for i in range(2008, 2023)])
     result = censor(x, limits)
-    assert isinstance(result, list)
-    assert result[2:-2] == x[2:-2]
-    assert all(isinstance(val, NaT_type) for val in result[:2])
-    assert all(isinstance(val, NaT_type) for val in result[-2:])
+    assert_equal(result[2:-2], x[2:-2])
+    assert all(val is None for val in result[:2])
+    assert all(val is None for val in result[-2:])
 
     x4 = np.array(x)
     result = censor(x4, limits)
     npt.assert_array_equal(result[2:-2], x4[2:-2])
-    assert all(isinstance(val, NaT_type) for val in result[:2])
-    assert all(isinstance(val, NaT_type) for val in result[-2:])
+    assert all(val is None for val in result[:2])
+    assert all(val is None for val in result[-2:])
 
     # np.timedelta64
     limits = np.timedelta64(200, "D"), np.timedelta64(205, "D")
@@ -126,7 +125,7 @@ def test_expand_range():
     assert expand_range((0, 1), add=2) == (-2, 3)
     assert expand_range((0, 1), mul=2, add=2) == (-4, 5)
     assert expand_range((1, 1), mul=2, add=2, zero_width=1) == (0.5, 1.5)
-    assert expand_range(0) == (-0.5, 0.5)
+    assert expand_range((0, 0)) == (-0.5, 0.5)
 
     def diff(x):
         return x[1] - x[0]
@@ -249,11 +248,6 @@ def test_rescale_max():
     # branches #
     assert rescale_max(2, _from=(0, 10)) == 0.2
 
-    # Maintains the same index
-    s = pd.Series([1, 2, 3], index=[3, 2, 1])
-    result = rescale_max(s)
-    assert s.index.equals(result.index)
-
     x = [-5, -4, -3, -2, -1, 0]
     result = rescale_max(x)
     assert result == approx([0, 0.2, 0.4, 0.6, 0.8, 1.0])
@@ -273,13 +267,7 @@ def test_rescale_mid():
     npt.assert_allclose(rescale_mid(a, mid=3), [0, 0.25, 0.5])
 
     # branches #
-    npt.assert_allclose(rescale_mid(2, to=(1, 3), mid=2), 2)
     npt.assert_allclose(rescale_mid([2], _from=(2, 2), to=(2, 2), mid=2), [2])
-
-    # Maintains the same index
-    s = pd.Series([1, 2, 3], index=[3, 2, 1])
-    result = rescale_mid(s, mid=1)
-    assert s.index.equals(result.index)
 
 
 def test_squish_infinite():
@@ -291,11 +279,6 @@ def test_squish_infinite():
 
     b = np.array([5, -np.inf, 2, 3, 6])
     npt.assert_allclose(squish_infinite(b, (1, 10)), [5, 1, 2, 3, 6])
-
-    # Maintains the same index
-    s = pd.Series([1, 2, 3, 4], index=[4, 3, 2, 1])
-    result = squish_infinite(s)
-    assert s.index.equals(result.index)
 
 
 def test_squish():
@@ -312,11 +295,6 @@ def test_squish():
     c = np.array([5, -np.inf, 2, 3, 6])
     npt.assert_allclose(squish(c, (1, 10), only_finite=False), [5, 1, 2, 3, 6])
     npt.assert_allclose(squish(c, (1, 10)), c)
-
-    # Maintains the same index
-    s = pd.Series([0.1, 0.2, 0.3, 9], index=[4, 3, 2, 1])
-    result = squish(s)
-    assert s.index.equals(result.index)
 
 
 def test_zero_range():
@@ -350,8 +328,11 @@ def test_zero_range():
     assert zero_range((np.inf, np.inf))
 
     # Single value
-    assert zero_range(1)
-    assert zero_range([1])
+    with pytest.raises(TypeError):
+        assert zero_range(1)
+
+    with pytest.raises(IndexError):
+        assert zero_range([1])
 
     # length greater than 2
     with pytest.raises(ValueError):
@@ -396,7 +377,7 @@ def test_zero_range():
     assert not zero_range(x3)
 
     # branches #
-    assert str(zero_range([4, float("nan")])) == "nan"
+    assert zero_range([4, float("nan")])
     assert not zero_range([4, float("inf")])
     with pytest.raises(TypeError):
         zero_range(["a", "b"])
