@@ -39,6 +39,8 @@ if typing.TYPE_CHECKING:
     TupleFloat3: TypeAlias = TupleT3[float] | TupleT3[np.float64]
     TupleFloat4: TypeAlias = TupleT4[float] | TupleT4[np.float64]
     TupleFloat5: TypeAlias = TupleT5[float] | TupleT5[np.float64]
+    TupleDatetime2: TypeAlias = TupleT2[datetime]
+    TupleDate2: TypeAlias = TupleT2[date]
 
     # Arrays (strictly numpy)
     NDArrayAny: TypeAlias = NDArray[Any]
@@ -116,17 +118,18 @@ if typing.TYPE_CHECKING:
     ]
     ColorPalette: TypeAlias = palette
 
+    # Use SI Units where applica
     DurationUnit: TypeAlias = Literal[
         "ns",  # nanosecond
         "us",  # microsecond
         "ms",  # millisecond
         "s",  # second
-        "m",  # month
+        "min",  # minute
         "h",  # hour
-        "d",  # day
-        "w",  # week
-        "M",  # month
-        "y",  # year
+        "day",  # day
+        "week",  # week
+        "month",  # month
+        "year",  # year
     ]
     Timedelta: TypeAlias = timedelta | pd.Timedelta
     Datetime: TypeAlias = date | datetime | np.datetime64
@@ -141,6 +144,7 @@ if typing.TYPE_CHECKING:
     DateFreq: TypeAlias = Literal[0, 1, 3, 4, 5, 6, 7]
     DatetimeBreaksUnits: TypeAlias = Literal[
         "auto",
+        "microsecond",
         "second",
         "minute",
         "hour",

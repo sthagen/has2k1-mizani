@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+import sys
 import typing
 from datetime import datetime, timezone
 from typing import overload
@@ -29,11 +31,19 @@ __all__ = [
     "min_max",
     "match",
     "precision",
+    "isclose_abs",
     "same_log10_order_of_magnitude",
     "identity",
     "get_categories",
     "get_timezone",
 ]
+
+# Use sqrt(epsilon) to correct for loss of precision due floating point
+# rounding errors. This value is derived for forward difference numerical
+# difference, but for our use cases this choice of value is arbitrary.
+EPSILON = sys.float_info.epsilon
+ROUNDING_ERROR = np.sqrt(EPSILON)
+ABS_TOL = 1e-10  # Absolute Tolerance
 
 DISCRETE_KINDS = "ObUS"
 CONTINUOUS_KINDS = "ifuc"
@@ -43,12 +53,12 @@ SECONDS: dict[DurationUnit, float] = {
     "us": 1e-6,  # microsecond
     "ms": 1e-3,  # millisecond
     "s": 1,  # second
-    "m": 60,  # month
+    "min": 60,  # minutes
     "h": 3600,  # hour
-    "d": 24 * 3600,  # day
-    "w": 7 * 24 * 3600,  # week
-    "M": 31 * 24 * 3600,  # month
-    "y": 365 * 24 * 3600,  # year
+    "day": 24 * 3600,  # day
+    "week": 7 * 24 * 3600,  # week
+    "month": 31 * 24 * 3600,  # month
+    "year": 365 * 24 * 3600,  # year
 }
 
 NANOSECONDS: dict[DurationUnit, float] = {
@@ -56,12 +66,12 @@ NANOSECONDS: dict[DurationUnit, float] = {
     "us": 1e3,  # microsecond
     "ms": 1e6,  # millisecond
     "s": 1e9,  # second
-    "m": 60e9,  # month
+    "min": 60e9,  # minutes
     "h": 3600e9,  # hour
-    "d": 24 * 3600e9,  # day
-    "w": 7 * 24 * 3600e9,  # week
-    "M": 31 * 24 * 3600e9,  # month
-    "y": 365 * 24 * 3600e9,  # year
+    "day": 24 * 3600e9,  # day
+    "week": 7 * 24 * 3600e9,  # week
+    "month": 31 * 24 * 3600e9,  # month
+    "year": 365 * 24 * 3600e9,  # year
 }
 
 
@@ -195,25 +205,46 @@ def precision(x: FloatArrayLike | float) -> float:
 
     Examples
     --------
-    >>> precision(0.08)
+    >>> precision([0.08, 0.09])
     0.01
-    >>> precision(9)
+
+    Maximum precision is 1
+
+    >>> precision([9, 8])
     1
-    >>> precision(16)
-    10
+    >>> precision([16, 78])
+    1
+
+    A single values have a precision of 1
+
+    >>> precision(0.08)
+    1
+    >>> precision([325])
+    1
     """
-    from .bounds import zero_range
 
-    rng = min_max(x, na_rm=True)
-    if zero_range(rng):
-        span = np.abs(rng[0])
-    else:
-        span = np.diff(rng)[0]
+    x = np.asarray(x)
+    x = x[~(np.isnan(x) | np.isinf(x))]
 
-    if span == 0:
+    if len(x) <= 1:
+        return 1
+
+    smallest_diff = np.diff(np.sort(x))[0]
+    if smallest_diff < ROUNDING_ERROR:  # pragma: nocover
         return 1
     else:
-        return 10 ** int(np.floor(np.log10(span)))
+        # For some intel processors (Skylake), numpy may be compiled
+        # to do a fast but precision losing np.log10 calculation.
+        # We add a rounding error incase due to lost precision, a
+        # result that should be an integer (or slightly greater than
+        # one) will get "floored" to the correct value
+        res = 10 ** int(np.floor(np.log10(smallest_diff) + ROUNDING_ERROR) - 1)
+        has_extra_zeros = (np.round(x / res) % 10 == 0).all()
+        if has_extra_zeros:
+            res *= 10
+
+        # 1 comes first so that min(1, 1.0) returns an integer
+        return min(1, res)
 
 
 def same_log10_order_of_magnitude(x, delta=0.1):
@@ -323,11 +354,11 @@ def get_timezone(x: SeqDatetime) -> tzinfo | None:
     if any(tzname0 != name for name in tznames):
         msg = (
             "Dates in column have different time zones. "
-            "Choosen `{}` the time zone of the first date. "
+            f"Choosen `{tzname0}` the time zone of the first date. "
             "To use a different time zone, create a "
-            "formatter and pass the time zone."
+            "labeller and pass the time zone."
         )
-        warn(msg.format(tzname0))
+        warn(msg)
     return info
 
 
@@ -358,3 +389,10 @@ def get_null_value(x: Any) -> NullType:
         raise ValueError(
             "Cannot get a null value for type: {}".format(type(x[0]))
         )
+
+
+def isclose_abs(a: float, b: float, tol: float = ABS_TOL) -> bool:
+    """
+    Return True if a and b are close given the absolute tolerance
+    """
+    return math.isclose(a, b, rel_tol=0, abs_tol=ABS_TOL)

@@ -19,6 +19,35 @@ API Changes
 
 - mizani now requires python 3.9 and above.
 
+- The units parameter for of :class:`~mizani.formatters.timedelta_format`
+  now accepts the values `"min", "day", "week", "month"`,
+  instead of `"m", "d", "w", "M"`.
+
+- The naming convention for break formatting methods has changed from
+  `*_format` to `label_*`. Specifically these methods have been renamed.
+
+  * `comma_format` is now :class:`~mizani.formatters.label_comma`
+  * `custom_format` is now :class:`~mizani.formatters.label_custom`
+  * `currency_format` is now :class:`~mizani.formatters.label_currency`
+  * `label_dollar` is now :class:`~mizani.formatters.label_dollar`
+  * `percent_format` is now :class:`~mizani.formatters.label_percent`
+  * `scientific_format` is now :class:`~mizani.formatters.label_scientific`
+  * `date_format` is now :class:`~mizani.formatters.label_date`
+  * `number_format` is now :class:`~mizani.formatters.label_number`
+  * `log_format` is now :class:`~mizani.formatters.label_log`
+  * `timedelta_format` is now :class:`~mizani.formatters.label_timedelta`
+  * `pvalue_format` is now :class:`~mizani.formatters.label_pvalue`
+  * `ordinal_format` is now :class:`~mizani.formatters.label_ordinal`
+  * `number_bytes_format` is now :class:`~mizani.formatters.label_bytes`
+
+- The naming convention for break calculating methods has changed from
+  `*_breaks` to `breaks_*`. Specifically these methods have been renamed.
+
+  * `log_breaks` is now :class:`~mizani.breaks.breaks_log`
+  * `trans_minor_breaks` is now :class:`~mizani.breaks.minor_breaks_trans`
+  * `date_breaks` is now :class:`~mizani.breaks. breaks_date`
+  * `timedelta_breaks` is now :class:`~mizani.breaks. breaks_timedelta`
+  * `extended_breaks` is now :class:`~mizani.breaks. breaks_extended`
 
 v0.9.2
 ------

@@ -31,18 +31,18 @@ import pandas as pd
 
 from ._core.dates import datetime_to_num, num_to_datetime
 from .breaks import (
-    date_breaks,
-    extended_breaks,
-    log_breaks,
+    breaks_date,
+    breaks_extended,
+    breaks_log,
+    breaks_timedelta,
     minor_breaks,
-    timedelta_breaks,
-    trans_minor_breaks,
+    minor_breaks_trans,
 )
-from .formatters import (
-    date_format,
-    log_format,
-    number_format,
-    timedelta_format,
+from .labels import (
+    label_date,
+    label_log,
+    label_number,
+    label_timedelta,
 )
 
 if typing.TYPE_CHECKING:
@@ -132,13 +132,13 @@ class trans:
     domain = (-np.inf, np.inf)
 
     #: Callable to calculate breaks
-    breaks_: BreaksFunction = extended_breaks(n=5)
+    breaks_: BreaksFunction = breaks_extended(n=5)
 
     #: Callable to calculate minor_breaks
     minor_breaks: MinorBreaksFunction = minor_breaks(1)
 
     #: Function to format breaks
-    format: FormatFunction = staticmethod(number_format())
+    format: FormatFunction = staticmethod(label_number())
 
     def __init__(self, **kwargs: Any):
         for k, v in kwargs.items():
@@ -195,7 +195,7 @@ class trans:
         vmax = np.min([self.domain[1], limits[1]])
         breaks = np.asarray(self.breaks_((vmin, vmax)))
 
-        # Some methods (e.g. extended_breaks) that
+        # Some methods (e.g. breaks_extended) that
         # calculate breaks take the limits as guide posts and
         # not hard limits.
         breaks = breaks.compress(
@@ -325,16 +325,16 @@ def log_trans(base: Optional[float] = None, **kwargs: Any) -> trans:
         kwargs["domain"] = (sys.float_info.min, np.inf)
 
     if "breaks" not in kwargs:
-        kwargs["breaks"] = log_breaks(base=base)  # type: ignore
+        kwargs["breaks"] = breaks_log(base=base)  # type: ignore
 
     kwargs["base"] = base
-    kwargs["_format"] = log_format(base)  # type: ignore
+    kwargs["_format"] = label_log(base)  # type: ignore
 
     _trans = trans_new(name, transform, inverse, **kwargs)
 
     if "minor_breaks" not in kwargs:
         n = int(base) - 2  # type: ignore
-        _trans.minor_breaks = trans_minor_breaks(_trans, n=n)
+        _trans.minor_breaks = minor_breaks_trans(_trans, n=n)
 
     return _trans
 
@@ -672,8 +672,8 @@ class datetime_trans(trans):
         datetime(MINYEAR, 1, 1, tzinfo=UTC),
         datetime(MAXYEAR, 12, 31, tzinfo=UTC),
     )
-    breaks_ = staticmethod(date_breaks())
-    format = staticmethod(date_format())
+    breaks_ = staticmethod(breaks_date())
+    format = staticmethod(label_date())
     tz = None
 
     def __init__(self, tz=None, **kwargs):
@@ -722,8 +722,8 @@ class timedelta_trans(trans):
 
     dataspace_is_numerical = False
     domain = (timedelta.min, timedelta.max)
-    breaks_ = staticmethod(timedelta_breaks())
-    format = staticmethod(timedelta_format())
+    breaks_ = staticmethod(breaks_timedelta())
+    format = staticmethod(label_timedelta())
 
     @staticmethod
     def transform(x: AnyVector) -> FloatVector:
@@ -748,8 +748,8 @@ class pd_timedelta_trans(trans):
 
     dataspace_is_numerical = False
     domain = (pd.Timedelta.min, pd.Timedelta.max)
-    breaks_ = staticmethod(timedelta_breaks())
-    format = staticmethod(timedelta_format())
+    breaks_ = staticmethod(breaks_timedelta())
+    format = staticmethod(label_timedelta())
 
     @staticmethod
     def transform(x: AnyVector) -> FloatVector:
@@ -819,7 +819,7 @@ def pseudo_log_trans(sigma=1, base=None, **kwargs):
 
     if "minor_breaks" not in kwargs:
         n = int(base) - 2
-        _trans.minor_breaks = trans_minor_breaks(_trans, n=n)
+        _trans.minor_breaks = minor_breaks_trans(_trans, n=n)
 
     return _trans
 
