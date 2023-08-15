@@ -3,7 +3,10 @@ Changelog
 
 v0.10.0
 -------
-*not-yet-released*
+*2023-07-28*
+
+.. image:: https://zenodo.org/badge/DOI/10.5281/zenodo.8193394.svg
+   :target: https://doi.org/10.5281/zenodo.8193394
 
 API Changes
 ************
@@ -48,6 +51,18 @@ API Changes
   * `date_breaks` is now :class:`~mizani.breaks. breaks_date`
   * `timedelta_breaks` is now :class:`~mizani.breaks. breaks_timedelta`
   * `extended_breaks` is now :class:`~mizani.breaks. breaks_extended`
+
+- :class:`~mizani.transforms.trans.dataspace_is_numerical` has changed
+  to :class:`~mizani.transforms.trans.domain_is_numerical` and it is now
+  determined dynamically.
+
+- The default `minor_breaks` for all transforms that are not linear
+  are now calculated in dataspace. But only if the dataspace is
+  numerical.
+
+New
+***
+- :class:`~mizani.transforms.symlog_trans` for symmetric log transformation
 
 v0.9.2
 ------

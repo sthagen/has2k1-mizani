@@ -122,40 +122,30 @@ def test_minor_breaks():
 
 
 def test_minor_breaks_trans():
+    major = [1, 2, 3, 4]
+    limits = [0, 5]
+    regular_mb = minor_breaks()(major, limits)
+
     class identity_trans(trans):
-        def __init__(self):
-            self.minor_breaks = minor_breaks_trans(identity_trans)
+        transform_is_linear = True
+        transform = staticmethod(lambda x: x)
+        inverse = staticmethod(lambda x: x)
+
+    t1 = identity_trans()
+    t2 = identity_trans()
+    t2.minor_breaks = minor_breaks_trans(t2)
+    npt.assert_allclose(regular_mb, t1.minor_breaks(major, limits))
+    npt.assert_allclose(regular_mb, t2.minor_breaks(major, limits))
 
     class square_trans(trans):
         transform = staticmethod(np.square)
         inverse = staticmethod(np.sqrt)
 
-        def __init__(self):
-            self.minor_breaks = minor_breaks_trans(square_trans)
-
-    class weird_trans(trans):
-        dataspace_is_numerical = False
-
-        def __init__(self):
-            self.minor_breaks = minor_breaks_trans(weird_trans)
-
-    major = [1, 2, 3, 4]
-    limits = [0, 5]
-    regular_minors = trans().minor_breaks(major, limits)
-    npt.assert_allclose(
-        regular_minors, identity_trans().minor_breaks(major, limits)
-    )
-
     # Transform the input major breaks and check against
     # the inverse of the output minor breaks
-    squared_input_minors = square_trans().minor_breaks(
-        np.square(major), np.square(limits)
-    )
-    npt.assert_allclose(regular_minors, np.sqrt(squared_input_minors))
-
-    t = weird_trans()
-    with pytest.raises(TypeError):
-        t.minor_breaks(major)
+    t = square_trans()
+    square_mb = t.minor_breaks(np.square(major), np.square(limits))
+    npt.assert_allclose(regular_mb, np.sqrt(square_mb))
 
     # Test minor_breaks for log scales are 2 less than the base
     base = 10

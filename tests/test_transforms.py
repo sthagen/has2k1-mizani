@@ -28,6 +28,7 @@ from mizani.transforms import (
     reciprocal_trans,
     reverse_trans,
     sqrt_trans,
+    symlog_trans,
     timedelta_trans,
     trans,
     trans_new,
@@ -37,8 +38,11 @@ arr = np.arange(1, 100)
 
 
 def test_trans():
+    with pytest.raises(TypeError):
+        trans()  # type: ignore
+
     with pytest.raises(AttributeError):
-        trans(universe=True)
+        identity_trans(universe=True)
 
 
 def test_trans_new():
@@ -78,8 +82,8 @@ def test_gettrans():
         gettrans(object)
 
 
-def _test_trans(trans, x):
-    t = gettrans(trans())
+def _test_trans(trans, x, *args, **kwargs):
+    t = gettrans(trans)
     xt = t.transform(x)
     x2 = t.inverse(xt)
     is_log_trans = "log" in t.__class__.__name__ and hasattr(t, "base")
@@ -196,7 +200,13 @@ def test_pseudo_log_trans():
     arr = np.hstack([-np.array(pos[::-1]), pos])
     _test_trans(pseudo_log_trans, arr)
     _test_trans(pseudo_log_trans(base=16), arr)
-    _test_trans(pseudo_log_trans(base=10, minor_breaks=minor_breaks(n=5)), arr)
+
+
+def test_symlog_trans():
+    p = np.arange(-4, 4)
+    pos = [10 ** int(x) for x in p]
+    arr = np.hstack([-np.array(pos[::-1]), pos])
+    _test_trans(symlog_trans, arr)
 
 
 def test_probability_trans():
