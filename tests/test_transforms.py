@@ -108,11 +108,11 @@ def _test_trans(trans, x, *args, **kwargs):
 
 
 def test_asn_trans():
-    _test_trans(asn_trans, arr * 0.01),
+    (_test_trans(asn_trans, arr * 0.01),)
 
 
 def test_atanh_trans():
-    _test_trans(atanh_trans, arr * 0.001),
+    (_test_trans(atanh_trans, arr * 0.001),)
 
 
 def test_boxcox_trans():
@@ -241,7 +241,7 @@ def test_datetime_trans():
     assert all(isinstance(val, datetime) for val in x2)
 
     # pandas timestamp
-    x = pd.date_range(start="1/1/2022", end="1/2/2022", freq="3H", tz="EST")
+    x = pd.date_range(start="1/1/2022", end="1/2/2022", freq="3h", tz="EST")
     t = datetime_trans()
     xt = t.transform(x)
     x2 = t.inverse(xt)
