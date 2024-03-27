@@ -9,10 +9,15 @@ means that the palette space is sparsely sampled.
 All swatches of a palette have different lengths, are listed shortest to
 longest and each swatch is longer than the previous by one color.
 """
+
 from __future__ import annotations
 
 import typing
 from dataclasses import dataclass
+from functools import cached_property
+
+from .._colormaps import PaletteInterpolatedMap
+from .._colormaps._colormap import ColorMapKind
 
 if typing.TYPE_CHECKING:
     from mizani.typing import (
@@ -22,6 +27,8 @@ if typing.TYPE_CHECKING:
         RGBHexColor,
         RGBHexSwatch,
     )
+
+PaletteKind = ColorMapKind
 
 
 @dataclass
@@ -38,6 +45,9 @@ class palette:
     #: Discrete samplings of the palette space
     swatches: RGB256Swatches
 
+    #: Kind of palette
+    kind: PaletteKind
+
     def get_swatch(self, num_colors: int) -> RGB256Swatch:
         """
         Get a swatch with given number of colors
@@ -51,6 +61,13 @@ class palette:
         """
         swatch = self.get_swatch(num_colors)
         return RGB256Swatch_to_RGBHexSwatch(swatch)
+
+    @cached_property
+    def colormap(self) -> PaletteInterpolatedMap:
+        """
+        Return a colormap representation of the palette
+        """
+        return PaletteInterpolatedMap(self)
 
 
 def HX(n: int) -> str:
