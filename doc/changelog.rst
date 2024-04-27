@@ -1,6 +1,22 @@
 Changelog
 =========
 
+v0.11.2
+-------
+*2024-04-26*
+
+.. image:: https://zenodo.org/badge/DOI/10.5281/zenodo.11074548.svg
+  :target: https://doi.org/10.5281/zenodo.11074548
+
+Bug Fixes
+---------
+
+- Added the ability to create reversed colormap for
+  :class:`~mizani.palettes.cmap_pal` and
+  :class:`~mizani.palettes.cmap_d_pal` using the matplotlib convention
+  of `name_r`.
+
+
 v0.11.1
 -------
 *2024-03-27*
