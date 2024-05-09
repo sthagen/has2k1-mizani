@@ -1,6 +1,21 @@
 Changelog
 =========
 
+v0.11.3
+-------
+*2024-05-09*
+
+.. image:: https://zenodo.org/badge/DOI/10.5281/zenodo.11167016.svg
+  :target: https://doi.org/10.5281/zenodo.11167016
+
+Bug Fixes
+---------
+
+- Fixed bug when calculating monthly breaks where when the limits are narrow
+  and do not align with the start and end of the month, there were no
+  dates returned. (:issue:`42`)
+
+
 v0.11.2
 -------
 *2024-04-26*
