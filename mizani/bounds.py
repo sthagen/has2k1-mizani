@@ -25,20 +25,19 @@ import datetime
 import sys
 import typing
 from copy import copy
-from typing import overload
 
 import numpy as np
 import pandas as pd
 
-from .utils import get_null_value, is_vector
+from .utils import get_null_value
 
 if typing.TYPE_CHECKING:
-    from typing import Any, Optional, Sequence
+    from typing import Any, Optional
 
     from mizani.typing import (
         FloatArrayLike,
-        FloatSeries,
         NDArrayFloat,
+        TFloatVector,
         TupleFloat2,
         TupleFloat4,
     )
@@ -128,6 +127,19 @@ def rescale_mid(
     >>> rescale_mid([1, 2, 3], mid=1)
     array([0.5 , 0.75, 1.  ])
     >>> rescale_mid([1, 2, 3], mid=2)
+    array([0. , 0.5, 1. ])
+
+    `rescale_mid` does have the same signature as `rescale` and
+    `rescale_max`. In cases where we need a compatible function with
+    the same signature, we use a closure around the extra `mid` argument.
+
+    >>> def rescale_mid_compat(mid):
+    ...     def _rescale(x, to=(0, 1), _from=None):
+    ...         return rescale_mid(x, to, _from, mid=mid)
+    ...     return _rescale
+
+    >>> rescale_mid2 = rescale_mid_compat(mid=2)
+    >>> rescale_mid2([1, 2, 3])
     array([0. , 0.5, 1. ])
     """
     __from: NDArrayFloat = np.array(
@@ -234,10 +246,10 @@ def squish_infinite(
     --------
     >>> arr1 = np.array([0, .5, .25, np.inf, .44])
     >>> arr2 = np.array([0, -np.inf, .5, .25, np.inf])
-    >>> list(squish_infinite(arr1))
-    [0.0, 0.5, 0.25, 1.0, 0.44]
-    >>> list(squish_infinite(arr2, (-10, 9)))
-    [0.0, -10.0, 0.5, 0.25, 9.0]
+    >>> squish_infinite(arr1)
+    array([0.  , 0.5 , 0.25, 1.  , 0.44])
+    >>> squish_infinite(arr2, (-10, 9))
+    array([  0.  , -10.  ,   0.5 ,   0.25,   9.  ])
     """
     _x = np.array(x, copy=True)
     _x[np.isneginf(_x)] = range[0]
@@ -267,11 +279,11 @@ def squish(
 
     Examples
     --------
-    >>> list(squish([-1.5, 0.2, 0.8, 1.0, 1.2]))
-    [0.0, 0.2, 0.8, 1.0, 1.0]
+    >>> squish([-1.5, 0.2, 0.8, 1.0, 1.2])
+    array([0. , 0.2, 0.8, 1. , 1. ])
 
-    >>> list(squish([-np.inf, -1.5, 0.2, 0.8, 1.0, np.inf], only_finite=False))
-    [0.0, 0.0, 0.2, 0.8, 1.0, 1.0]
+    >>> squish([-np.inf, -1.5, 0.2, 0.8, 1.0, np.inf], only_finite=False)
+    array([0. , 0. , 0.2, 0.8, 1. , 1. ])
     """
     _x = np.array(x, copy=True)
     finite = np.isfinite(_x) if only_finite else True
@@ -280,25 +292,11 @@ def squish(
     return _x
 
 
-@overload
 def censor(
-    x: NDArrayFloat | Sequence[float],
+    x: TFloatVector,
     range: TupleFloat2 = (0, 1),
     only_finite: bool = True,
-) -> NDArrayFloat: ...
-
-
-@overload
-def censor(
-    x: FloatSeries, range: TupleFloat2 = (0, 1), only_finite: bool = True
-) -> FloatSeries: ...
-
-
-def censor(
-    x: NDArrayFloat | Sequence[float] | FloatSeries,
-    range: TupleFloat2 = (0, 1),
-    only_finite: bool = True,
-) -> NDArrayFloat | FloatSeries:
+) -> TFloatVector:
     """
     Convert any values outside of range to a **NULL** type object.
 
@@ -320,12 +318,12 @@ def censor(
     Examples
     --------
     >>> a = np.array([1, 2, np.inf, 3, 4, -np.inf, 5])
-    >>> list(censor(a, (0, 10)))
-    [1.0, 2.0, inf, 3.0, 4.0, -inf, 5.0]
-    >>> list(censor(a, (0, 10), False))
-    [1.0, 2.0, nan, 3.0, 4.0, nan, 5.0]
-    >>> list(censor(a, (2, 4)))
-    [nan, 2.0, inf, 3.0, 4.0, -inf, nan]
+    >>> censor(a, (0, 10))
+    array([  1.,   2.,  inf,   3.,   4., -inf,   5.])
+    >>> censor(a, (0, 10), False)
+    array([ 1.,  2., nan,  3.,  4., nan,  5.])
+    >>> censor(a, (2, 4))
+    array([ nan,   2.,  inf,   3.,   4., -inf,  nan])
 
     Notes
     -----
@@ -340,11 +338,9 @@ def censor(
     - :class:`datetime.timedelta` : :py:`np.timedelta64(NaT)`
 
     """
+    res = copy(x)
     if not len(x):
-        return np.array([])
-
-    if not is_vector(x):
-        x = np.asarray(x)
+        return res
 
     null = get_null_value(x)
 
@@ -360,10 +356,9 @@ def censor(
     with np.errstate(invalid="ignore"):
         outside = (x < range[0]) | (x > range[1])
     bool_idx = finite & outside
-    res = copy(x)
     if bool_idx.any():
-        if res.dtype.kind == "i":
-            res = np.asarray(res, dtype=float)
+        if res.dtype == int:
+            res = res.astype(float)
         res[bool_idx] = null
     return res
 
@@ -436,7 +431,7 @@ def zero_range(x: tuple[Any, Any], tol: float = EPSILON * 100) -> bool:
     if low_abs == 0:
         return False
 
-    return ((high - low) / low_abs) < tol
+    return bool(((high - low) / low_abs) < tol)
 
 
 def expand_range(

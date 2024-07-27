@@ -12,7 +12,7 @@ import pandas.api.types as pdtypes
 
 if TYPE_CHECKING:
     from datetime import tzinfo
-    from typing import Any, Optional, Sequence, TypeGuard
+    from typing import Any, Optional, Sequence, TypeGuard, TypeVar
 
     from mizani.typing import (
         AnyArrayLike,
@@ -26,6 +26,7 @@ if TYPE_CHECKING:
         TupleFloat2,
     )
 
+    T = TypeVar("T")
 
 __all__ = [
     "round_any",
@@ -269,11 +270,11 @@ def same_log10_order_of_magnitude(x, delta=0.1):
     return np.floor(dmin) == np.floor(dmax)
 
 
-def identity(*args):
+def identity(param: T) -> T:
     """
     Return whatever is passed in
     """
-    return args[0] if len(args) == 1 else args
+    return param
 
 
 def get_categories(x):
@@ -369,7 +370,14 @@ def get_null_value(x: Any) -> NullType:
     import pandas as pd
 
     x0 = next(iter(x))
-    numeric_types: Sequence[type] = (np.int64, np.float64, int, float, bool)
+    numeric_types: Sequence[type] = (
+        np.int32,
+        np.int64,
+        np.float64,
+        int,
+        float,
+        bool,
+    )
 
     if pdtypes.is_object_dtype(x):
         return None
