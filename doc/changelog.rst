@@ -1,9 +1,21 @@
 Changelog
 =========
 
+v0.12.1
+-------
+*2024-08-19*
+
+Enhancements
+************
+- Renamed "husl" color palette type to "hsluv". "husl" is the old name but
+  we still work although not part of the API.
+
 v0.12.0
 -------
 *2024-07-30*
+
+.. image:: https://zenodo.org/badge/DOI/10.5281/zenodo.13143647.svg
+  :target: https://doi.org/10.5281/zenodo.13143647
 
 API Changes
 ***********
