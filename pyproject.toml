@@ -15,6 +15,7 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: Visualization"
 ]
 dependencies = [
@@ -53,7 +54,7 @@ lint = [
 ]
 
 test = [
-    "pytest-cov"
+    "pytest-cov>=4.0.0"
 ]
 
 dev = [
@@ -64,7 +65,7 @@ dev = [
 ]
 
 typing = [
-    "pyright==1.1.376",
+    "pyright==1.1.381",
     "pandas-stubs",
 ]
 
@@ -135,6 +136,7 @@ exclude_also = [
    "@overload",
    "\\s{4,}\\.\\.\\.",
    ": lambda x: .+?,$",
+   "^def trans_new"
 ]
 precision = 1
 

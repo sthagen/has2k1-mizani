@@ -23,15 +23,22 @@ from __future__ import annotations
 
 import sys
 from abc import ABC, abstractmethod
-from datetime import MAXYEAR, MINYEAR, datetime, timedelta
+from dataclasses import KW_ONLY, dataclass, field
+from datetime import MAXYEAR, MINYEAR, datetime, timedelta, tzinfo
 from types import MethodType
 from typing import TYPE_CHECKING
+from warnings import warn
 from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
 
-from ._core.dates import datetime_to_num, num_to_datetime
+from ._core.dates import (
+    datetime_to_num,
+    num_to_datetime,
+    num_to_timedelta,
+    timedelta_to_num,
+)
 from .breaks import (
     breaks_date,
     breaks_extended,
@@ -47,10 +54,9 @@ from .labels import (
     label_number,
     label_timedelta,
 )
-from .utils import identity
 
 if TYPE_CHECKING:
-    from typing import Any, Callable, Optional, Sequence, Type
+    from typing import Any, Sequence, Type
 
     from mizani.typing import (
         BreaksFunction,
@@ -62,11 +68,9 @@ if TYPE_CHECKING:
         MinorBreaksFunction,
         NDArrayDatetime,
         NDArrayFloat,
-        NDArrayTimedelta,
         TFloatArrayLike,
-        TimedeltaSeries,
+        TimedeltaArrayLike,
         TransformFunction,
-        TupleFloat2,
     )
 
 
@@ -93,50 +97,53 @@ __all__ = [
     "pseudo_log_trans",
     "reciprocal_trans",
     "trans",
-    "trans_new",
     "gettrans",
 ]
 
 UTC = ZoneInfo("UTC")
+REGISTRY: dict[str, Type[trans]] = {}
 
 
+@dataclass(kw_only=True)
 class trans(ABC):
-    """
-    Base class for all transforms
-
-    This class is used to transform data and also tell the
-    x and y axes how to create and label the tick locations.
-
-    The key methods to override are :meth:`trans.transform`
-    and :meth:`trans.inverse`. Alternately, you can quickly
-    create a transform class using the :func:`trans_new`
-    function.
-
-    Parameters
-    ----------
-    kwargs : dict
-        Attributes of the class to set/override
-
-    """
-
-    #: Whether the transformation over the whole domain is linear.
-    #: e.g. `2x` is linear while `1/x` and `log(x)` are not.
-    transform_is_linear: bool = False
-
     domain: DomainType = (-np.inf, np.inf)
 
-    #: Callable to calculate breaks
-    breaks_: BreaksFunction = breaks_extended(n=5)
+    transform_is_linear: bool = False
+    """
+    Whether the transformation over the whole domain is linear.
+    e.g. `2x` is linear while `1/x` and `log(x)` are not.
+    """
 
-    #: Function to format breaks
-    format: FormatFunction = staticmethod(label_number())
+    breaks_func: BreaksFunction = field(default_factory=breaks_extended)
+    "Callable to calculate breaks"
 
-    def __init__(self, **kwargs: Any):
-        for k, v in kwargs.items():
-            if hasattr(self, k):
-                setattr(self, k, v)
-            else:
-                raise AttributeError(f"Unknown Parameter: {k}")
+    format_func: FormatFunction = field(default_factory=label_number)
+    "Function to format breaks"
+
+    minor_breaks_func: MinorBreaksFunction | None = None
+    "Callable to calculate minor breaks"
+
+    def __init_subclass__(cls, *args, **kwargs):
+        # Register all subclasses
+        super().__init_subclass__(*args, **kwargs)
+        REGISTRY[cls.__name__] = cls
+
+    # Use type variables for trans.transform and trans.inverse
+    # to help upstream packages avoid type mismatches. e.g.
+    # transform(tuple[float, float]) -> tuple[float, float]
+    @abstractmethod
+    def transform(self, x: TFloatArrayLike) -> TFloatArrayLike:
+        """
+        Transform of x
+        """
+        ...
+
+    @abstractmethod
+    def inverse(self, x: TFloatArrayLike) -> TFloatArrayLike:
+        """
+        Inverse of x
+        """
+        ...
 
     @property
     def domain_is_numerical(self) -> bool:
@@ -151,12 +158,15 @@ class trans(ABC):
     def minor_breaks(
         self,
         major: FloatArrayLike,
-        limits: Optional[TupleFloat2] = None,
-        n: Optional[int] = None,
+        limits: tuple[float, float] | None = None,
+        n: int | None = None,
     ) -> NDArrayFloat:
         """
         Calculate minor_breaks
         """
+        if self.minor_breaks_func is not None:
+            return self.minor_breaks_func(major, limits, n)
+
         n = 1 if n is None else n
 
         # minor_breaks_trans undoes the transformation and
@@ -167,25 +177,6 @@ class trans(ABC):
         else:
             func = minor_breaks_trans(self, n=n)
         return func(major, limits, n)
-
-    # Use type variables for trans.transform and trans.inverse
-    # to help upstream packages avoid type mismatches. e.g.
-    # transform(tuple[float, float]) -> tuple[float, float]
-    @staticmethod
-    @abstractmethod
-    def transform(x: TFloatArrayLike) -> TFloatArrayLike:
-        """
-        Transform of x
-        """
-        ...
-
-    @staticmethod
-    @abstractmethod
-    def inverse(x: TFloatArrayLike) -> TFloatArrayLike:
-        """
-        Inverse of x
-        """
-        ...
 
     def breaks(self, limits: DomainType) -> NDArrayFloat:
         """
@@ -221,7 +212,7 @@ class trans(ABC):
             max(self.domain[0], limits[0]),
             min(self.domain[1], limits[1]),
         )
-        breaks = np.asarray(self.breaks_(limits))
+        breaks = np.asarray(self.breaks_func(limits))
 
         # Some methods (e.g. breaks_extended) that
         # calculate breaks take the limits as guide posts and
@@ -231,15 +222,35 @@ class trans(ABC):
         )
         return breaks
 
+    def diff_type_to_num(self, x: Any) -> FloatArrayLike:
+        """
+        Convert the difference between two points in the domain to a numeric
+
+        This function is necessary for some arithmetic operations in the
+        transform space of a domain when the difference in between any two
+        points in that domain is not numeric.
+
+        For example for a domain of datetime value types, the difference on
+        the domain is of type timedelta. In this case this function should
+        expect timedeltas and convert them to float values that compatible
+        (same units) as the transform value of datetimes.
+
+        Parameters
+        ----------
+        x :
+            Differences
+        """
+        return x
+
 
 def trans_new(
     name: str,
     transform: TransformFunction,
     inverse: InverseFunction,
-    breaks: Optional[BreaksFunction] = None,
-    minor_breaks: Optional[MinorBreaksFunction] = None,
-    _format: Optional[FormatFunction] = None,
-    domain=(-np.inf, np.inf),
+    breaks_func: BreaksFunction | None = None,
+    minor_breaks_func: MinorBreaksFunction | None = None,
+    format_func: FormatFunction | None = None,
+    domain: DomainType = (-np.inf, np.inf),
     doc: str = "",
     **kwargs,
 ) -> trans:
@@ -280,6 +291,12 @@ def trans_new(
     out : trans
         Transform class
     """
+    warn(
+        "This function has been deprecated and will be removed in a future "
+        "version. You should create transforms explicitly using the class "
+        "syntax.",
+        FutureWarning,
+    )
 
     def _get(func):
         if isinstance(func, (classmethod, staticmethod, MethodType)):
@@ -297,19 +314,20 @@ def trans_new(
         **kwargs,
     }
 
-    if breaks:
-        d["breaks_"] = _get(breaks)
+    if breaks_func:
+        d["breaks_func"] = _get(breaks_func)
 
     if minor_breaks:
-        d["minor_breaks"] = _get(minor_breaks)
+        d["minor_breaks_func"] = _get(minor_breaks_func)
 
-    if _format:
-        d["format"] = _get(_format)
+    if format_func:
+        d["format_func"] = _get(format_func)
 
     return type(klass_name, (trans,), d)  # type: ignore
 
 
-def log_trans(base: Optional[float] = None, **kwargs: Any) -> trans:
+@dataclass
+class log_trans(trans):
     """
     Create a log transform class for *base*
 
@@ -318,60 +336,62 @@ def log_trans(base: Optional[float] = None, **kwargs: Any) -> trans:
     base : float
         Base for the logarithm. If None, then
         the natural log is used.
-    kwargs : dict
-        Keyword arguments passed onto
-        :func:`trans_new`. Should not include
-        the `transform` or `inverse`.
 
     Returns
     -------
     out : type
         Log transform class
     """
-    # transform function
-    if base is None:
-        name = "log"
-        base = np.exp(1)
-        transform = np.log  # type: ignore
-    elif base == 10:
-        name = "log10"
-        transform = np.log10  # type: ignore
-    elif base == 2:
-        name = "log2"
-        transform = np.log2  # type: ignore
-    else:
-        name = "log{}".format(base)
 
-        def transform(x: FloatArrayLike) -> NDArrayFloat:
-            return np.log(x) / np.log(base)
+    base: float = np.exp(1)
+    _: KW_ONLY
+    domain: DomainType = (sys.float_info.min, np.inf)
 
-    # inverse function
-    def inverse(x):
-        return np.power(base, x)  # type: ignore
+    def __post_init__(self):
+        if self.base == 10:
+            self._transform = np.log10
+        elif self.base == 2:
+            self._transform = np.log2
+        elif self.base == np.exp(1):
+            self._transform = np.log
+        else:
 
-    if "domain" not in kwargs:
-        kwargs["domain"] = (sys.float_info.min, np.inf)
+            def _transform(x: FloatArrayLike) -> NDArrayFloat:
+                return np.log(x) / np.log(self.base)
 
-    if "breaks" not in kwargs:
-        kwargs["breaks"] = breaks_log(base=base)  # type: ignore
+            self._transform = _transform
 
-    kwargs["base"] = base
-    kwargs["_format"] = label_log(base)  # type: ignore
+        self.breaks_func = breaks_log(base=self.base)
+        self.format_func = label_log(base=self.base)
+        self.minor_breaks_func = minor_breaks_trans(self, n=int(self.base) - 2)
 
-    _trans = trans_new(name, transform, inverse, **kwargs)
+    def transform(self, x):
+        return self._transform(x)
 
-    if "minor_breaks" not in kwargs:
-        n = int(base) - 2  # type: ignore
-        _trans.minor_breaks = minor_breaks_trans(_trans, n=n)
-
-    return _trans
+    def inverse(self, x):
+        return np.power(self.base, x)
 
 
-log10_trans = log_trans(10, doc="Log 10 Transformation")
-log2_trans = log_trans(2, doc="Log 2 Transformation")
+@dataclass
+class log10_trans(log_trans):
+    """
+    Log 10 Transformation
+    """
+
+    base: float = 10
 
 
-def exp_trans(base: Optional[float] = None, **kwargs: Any):
+@dataclass
+class log2_trans(log_trans):
+    """
+    Log 2 Transformation
+    """
+
+    base: float = 2
+
+
+@dataclass
+class exp_trans(trans):
     """
     Create a exponential transform class for *base*
 
@@ -381,44 +401,36 @@ def exp_trans(base: Optional[float] = None, **kwargs: Any):
     ----------
     base : float
         Base of the logarithm
-    kwargs : dict
-        Keyword arguments passed onto
-        :func:`trans_new`. Should not include
-        the `transform` or `inverse`.
 
     Returns
     -------
     out : type
         Exponential transform class
     """
-    # default to e
-    if base is None:
-        name = "power_e"
-        base = np.exp(1)
-    else:
-        name = "power_{}".format(base)
 
-    # transform function
-    def transform(x):
-        return np.power(base, x)  # type: ignore
+    base: float = np.exp(1)
 
-    # inverse function
-    def inverse(x):
-        return np.log(x) / np.log(base)  # type: ignore
+    def transform(self, x):
+        return np.power(self.base, x)
 
-    kwargs["base"] = base
-    return trans_new(name, transform, inverse, **kwargs)
+    def inverse(self, x):
+        return np.log(x) / np.log(self.base)
 
 
+@dataclass
 class log1p_trans(trans):
     """
     Log plus one Transformation
     """
 
-    transform = staticmethod(np.log1p)  # type: ignore
-    inverse = staticmethod(np.expm1)  # type: ignore
+    def transform(self, x):
+        return np.log1p(x)
+
+    def inverse(self, x):
+        return np.expm1(x)
 
 
+@dataclass
 class identity_trans(trans):
     """
     Identity Transformation
@@ -435,61 +447,83 @@ class identity_trans(trans):
 
     Create a trans that returns 4 minor breaks
 
-    >>> t = identity_trans(minor_breaks=minor_breaks(4))
+    >>> t = identity_trans(minor_breaks_func=minor_breaks(4))
     >>> t.minor_breaks(major)
     array([0.2, 0.4, 0.6, 0.8, 1.2, 1.4, 1.6, 1.8])
     """
 
-    transform_is_linear = True
-    transform = staticmethod(identity)  # type: ignore
-    inverse = staticmethod(identity)  # type: ignore
+    transform_is_linear: bool = True
+
+    def transform(self, x):
+        return x
+
+    def inverse(self, x):
+        return x
 
 
+@dataclass(kw_only=True)
 class reverse_trans(trans):
     """
     Reverse Transformation
     """
 
-    transform_is_linear = True
-    transform = staticmethod(np.negative)  # type: ignore
-    inverse = staticmethod(np.negative)  # type: ignore
+    transform_is_linear: bool = True
+
+    def transform(self, x):
+        return np.negative(x)
+
+    def inverse(self, x):
+        return np.negative(x)
 
 
+@dataclass(kw_only=True)
 class sqrt_trans(trans):
     """
     Square-root Transformation
     """
 
-    transform = staticmethod(np.sqrt)  # type: ignore
-    inverse = staticmethod(np.square)  # type: ignore
-    domain = (0, np.inf)
+    domain: DomainType = (0, np.inf)
+
+    def transform(self, x):
+        return np.sqrt(x)
+
+    def inverse(self, x):
+        return np.square(x)
 
 
+@dataclass(kw_only=True)
 class asn_trans(trans):
     """
     Arc-sin square-root Transformation
     """
 
-    @staticmethod
-    def transform(x: FloatArrayLike) -> NDArrayFloat:
+    transform_is_linear: bool = True
+
+    def transform(self, x: FloatArrayLike) -> NDArrayFloat:
         return 2 * np.arcsin(np.sqrt(x))  # type: ignore
 
-    @staticmethod
-    def inverse(x: FloatArrayLike) -> NDArrayFloat:
+    def inverse(self, x: FloatArrayLike) -> NDArrayFloat:
         x = np.asarray(x)
         return np.sin(x / 2) ** 2  # type: ignore
 
 
+@dataclass(kw_only=True)
 class atanh_trans(trans):
     """
     Arc-tangent Transformation
     """
 
-    transform = staticmethod(np.arctanh)  # type: ignore
-    inverse = staticmethod(np.tanh)  # type: ignore
+    transform_is_linear: bool = True
+
+    def transform(self, x):
+        return np.arctanh(x)
+
+    def inverse(self, x):
+        return np.tanh(x)
 
 
-def boxcox_trans(p, offset=0, **kwargs):
+@dataclass
+class boxcox_trans(trans):
     r"""
     Boxcox Transformation
 
@@ -514,9 +548,6 @@ def boxcox_trans(p, offset=0, **kwargs):
         non-negative constant (Box-Cox type 2).
         The default is 0. :func:`~mizani.transforms.modulus_trans`
         sets the default to 1.
-    kwargs : dict
-        Keyword arguments passed onto :func:`trans_new`. Should not
-        include the `transform` or `inverse`.
 
     References
     ----------
@@ -533,34 +564,31 @@ def boxcox_trans(p, offset=0, **kwargs):
 
     """
 
-    def transform(x: FloatArrayLike) -> NDArrayFloat:
+    p: float
+    offset: int = 0
+
+    def transform(self, x: FloatArrayLike) -> NDArrayFloat:
         x = np.asarray(x)
-        if np.any((x + offset) < 0):
+        if np.any((x + self.offset) < 0):
             raise ValueError(
                 "boxcox_trans must be given only positive values. "
                 "Consider using modulus_trans instead?"
             )
-        if np.abs(p) < 1e-7:
-            return np.log(x + offset)
+        if np.abs(self.p) < 1e-7:
+            return np.log(x + self.offset)
         else:
-            return ((x + offset) ** p - 1) / p
+            return ((x + self.offset) ** self.p - 1) / self.p
 
-    def inverse(x: FloatArrayLike) -> NDArrayFloat:
+    def inverse(self, x: FloatArrayLike) -> NDArrayFloat:
         x = np.asarray(x)
-        if np.abs(p) < 1e-7:
-            return np.exp(x) - offset  # type: ignore
+        if np.abs(self.p) < 1e-7:
+            return np.exp(x) - self.offset  # type: ignore
         else:
-            return (x * p + 1) ** (1 / p) - offset
-
-    kwargs["p"] = p
-    kwargs["offset"] = offset
-    kwargs["name"] = kwargs.get("name", "pow_{}".format(p))
-    kwargs["transform"] = transform
-    kwargs["inverse"] = inverse
-    return trans_new(**kwargs)
+            return (x * self.p + 1) ** (1 / self.p) - self.offset
 
 
-def modulus_trans(p, offset=1, **kwargs):
+@dataclass
+class modulus_trans(trans):
     r"""
     Modulus Transformation
 
@@ -588,9 +616,6 @@ def modulus_trans(p, offset=1, **kwargs):
         non-negative constant (Box-Cox type 2).
         The default is 1. :func:`~mizani.transforms.boxcox_trans`
         sets the default to 0.
-    kwargs : dict
-        Keyword arguments passed onto :func:`trans_new`.
-        Should not include the `transform` or `inverse`.
 
     References
     ----------
@@ -605,35 +630,31 @@ def modulus_trans(p, offset=1, **kwargs):
     --------
     :func:`~mizani.transforms.boxcox_trans`
     """
-    if np.abs(p) < 1e-7:
 
-        def transform(x: FloatArrayLike) -> NDArrayFloat:
-            x = np.asarray(x)
+    p: float
+    offset: int = 1
+
+    def transform(self, x: FloatArrayLike) -> NDArrayFloat:
+        x = np.asarray(x)
+        p, offset = self.p, self.offset
+
+        if np.abs(self.p) < 1e-7:
             return np.sign(x) * np.log(np.abs(x) + offset)
-
-        def inverse(x: FloatArrayLike) -> NDArrayFloat:
-            x = np.asarray(x)
-            return np.sign(x) * (np.exp(np.abs(x)) - offset)  # type: ignore
-
-    else:
-
-        def transform(x: FloatArrayLike) -> NDArrayFloat:
-            x = np.asarray(x)
+        else:
             return np.sign(x) * ((np.abs(x) + offset) ** p - 1) / p
 
-        def inverse(x: FloatArrayLike) -> NDArrayFloat:
-            x = np.asarray(x)
+    def inverse(self, x: FloatArrayLike) -> NDArrayFloat:
+        x = np.asarray(x)
+        p, offset = self.p, self.offset
+
+        if np.abs(self.p) < 1e-7:
+            return np.sign(x) * (np.exp(np.abs(x)) - offset)  # type: ignore
+        else:
             return np.sign(x) * ((np.abs(x) * p + 1) ** (1 / p) - offset)
 
-    kwargs["p"] = p
-    kwargs["offset"] = offset
-    kwargs["name"] = kwargs.get("name", "mt_pow_{}".format(p))
-    kwargs["transform"] = transform
-    kwargs["inverse"] = inverse
-    return trans_new(**kwargs)
 
-
-def probability_trans(distribution: str, *args, **kwargs) -> trans:
+@dataclass
+class probability_trans(trans):
     """
     Probability Transformation
 
@@ -655,39 +676,44 @@ def probability_trans(distribution: str, *args, **kwargs) -> trans:
     computations may run into errors. Absence of any errors
     does not imply that the distribution fits the data.
     """
-    import scipy.stats as stats
 
-    cdists = {k for k in dir(stats) if hasattr(getattr(stats, k), "cdf")}
-    if distribution not in cdists:
-        raise ValueError(f"Unknown distribution '{distribution}'")
+    def __init__(self, distribution: str, *args, **kwargs):
+        import scipy.stats as stats
 
-    try:
-        doc = kwargs.pop("_doc")
-    except KeyError:
-        doc = ""
+        cdists = {k for k in dir(stats) if hasattr(getattr(stats, k), "cdf")}
+        if distribution not in cdists:
+            raise ValueError(f"Unknown distribution '{distribution}'")
 
-    try:
-        name = kwargs.pop("_name")
-    except KeyError:
-        name = "prob_{}".format(distribution)
+        self._dist = getattr(stats, distribution)
+        self._args = args
+        self._kwargs = kwargs
 
-    def transform(x: FloatArrayLike) -> NDArrayFloat:
-        return getattr(stats, distribution).cdf(x, *args, **kwargs)
+    def transform(self, x: FloatArrayLike) -> NDArrayFloat:
+        return self._dist.cdf(x, *self._args, **self._kwargs)
 
-    def inverse(x: FloatArrayLike) -> NDArrayFloat:
-        return getattr(stats, distribution).ppf(x, *args, **kwargs)
-
-    return trans_new(name, transform, inverse, domain=(0, 1), doc=doc)
+    def inverse(self, x: FloatArrayLike) -> NDArrayFloat:
+        return self._dist.ppf(x, *self._args, **self._kwargs)
 
 
-logit_trans = probability_trans(
-    "logistic", _name="logit", _doc="Logit Transformation"
-)
-probit_trans = probability_trans(
-    "norm", _name="norm", _doc="Probit Transformation"
-)
+class logit_trans(probability_trans):
+    """
+    Logit Transformation
+    """
+
+    def __init__(self):
+        super().__init__("logistic")
 
 
+class probit_trans(probability_trans):
+    """
+    Probit Transformation
+    """
+
+    def __init__(self):
+        super().__init__("norm")
+
+
+@dataclass
 class datetime_trans(trans):
     """
     Datetime Transformation
@@ -715,31 +741,31 @@ class datetime_trans(trans):
     'EST'
     """
 
-    domain = (
+    tz: tzinfo | str | None = None
+
+    _: KW_ONLY
+    domain: DomainType = (
         datetime(MINYEAR, 1, 1, tzinfo=UTC),
         datetime(MAXYEAR, 12, 31, tzinfo=UTC),
     )
-    breaks_ = staticmethod(breaks_date())
-    format = staticmethod(label_date())
-    tz = None
+    breaks_func: BreaksFunction = field(default_factory=breaks_date)
+    format_func: FormatFunction = field(default_factory=label_date)
 
-    def __init__(self, tz=None, **kwargs):
-        if isinstance(tz, str):
-            tz = ZoneInfo(tz)
-
-        super().__init__(**kwargs)
-        self.tz = tz
+    def __post_init__(self):
+        if isinstance(self.tz, str):
+            self.tz = ZoneInfo(self.tz)
 
     def transform(self, x: DatetimeArrayLike) -> NDArrayFloat:  # pyright: ignore[reportIncompatibleMethodOverride]
         """
         Transform from date to a numerical format
+
+        The transform values a unit of [days].
         """
         if not len(x):
             return np.array([])
 
-        x0 = next(iter(x))
         try:
-            tz = x0.tzinfo
+            tz = next(iter(x)).tzinfo
         except AttributeError:
             tz = None
 
@@ -761,55 +787,55 @@ class datetime_trans(trans):
         """
         return self.tz
 
+    def diff_type_to_num(self, x: TimedeltaArrayLike) -> FloatArrayLike:
+        """
+        Covert timedelta to numerical format
 
+        The timedeltas are converted to a unit of [days].
+        """
+        return timedelta_to_num(x)
+
+
+@dataclass(kw_only=True)
 class timedelta_trans(trans):
     """
     Timedelta Transformation
     """
 
-    domain = (timedelta.min, timedelta.max)
-    breaks_ = staticmethod(breaks_timedelta())
-    format = staticmethod(label_timedelta())
+    domain: DomainType = (timedelta.min, timedelta.max)
+    breaks_func: BreaksFunction = field(default_factory=breaks_timedelta)
+    format_func: FormatFunction = field(default_factory=label_timedelta)
 
-    @staticmethod
-    def transform(x: NDArrayTimedelta | Sequence[timedelta]) -> NDArrayFloat:  # pyright: ignore[reportIncompatibleMethodOverride]
+    def transform(self, x: TimedeltaArrayLike) -> NDArrayFloat:  # pyright: ignore[reportIncompatibleMethodOverride]
         """
         Transform from Timeddelta to numerical format
-        """
-        # microseconds
-        return np.array([_x.total_seconds() * 10**6 for _x in x])
 
-    @staticmethod
-    def inverse(x: FloatArrayLike) -> NDArrayTimedelta:
+        The transform values have a unit of [days]
+        """
+        return timedelta_to_num(x)
+
+    def inverse(self, x: FloatArrayLike) -> Sequence[pd.Timedelta]:  # pyright: ignore[reportIncompatibleMethodOverride]
         """
         Transform to Timedelta from numerical format
         """
-        return np.array([timedelta(microseconds=i) for i in x])
+        return num_to_timedelta(x)
+
+    def diff_type_to_num(self, x: TimedeltaArrayLike) -> FloatArrayLike:
+        """
+        Covert timedelta to numerical format
+
+        The timedeltas are converted to a unit of [days].
+        """
+        return timedelta_to_num(x)
 
 
-class pd_timedelta_trans(trans):
+@dataclass(kw_only=True)
+class pd_timedelta_trans(timedelta_trans):
     """
     Pandas timedelta Transformation
     """
 
-    domain = (pd.Timedelta.min, pd.Timedelta.max)
-    breaks_ = staticmethod(breaks_timedelta())
-    format = staticmethod(label_timedelta())
-
-    @staticmethod
-    def transform(x: TimedeltaSeries) -> NDArrayFloat:  # pyright: ignore[reportIncompatibleMethodOverride]
-        """
-        Transform from Timeddelta to numerical format
-        """
-        # nanoseconds
-        return np.array([_x.value for _x in x])
-
-    @staticmethod
-    def inverse(x: FloatArrayLike) -> NDArrayTimedelta:
-        """
-        Transform to Timedelta from numerical format
-        """
-        return np.array([pd.Timedelta(int(i)) for i in x])
+    domain: DomainType = (pd.Timedelta.min, pd.Timedelta.max)
 
 
 class reciprocal_trans(trans):
@@ -817,15 +843,14 @@ class reciprocal_trans(trans):
     Reciprocal Transformation
     """
 
-    @staticmethod
-    def transform(x: FloatArrayLike) -> NDArrayFloat:
+    def transform(self, x: FloatArrayLike) -> NDArrayFloat:
         return 1 / np.asarray(x)
 
-    @staticmethod
-    def inverse(x: FloatArrayLike) -> NDArrayFloat:
+    def inverse(self, x: FloatArrayLike) -> NDArrayFloat:
         return 1 / np.asarray(x)
 
 
+@dataclass
 class pseudo_log_trans(trans):
     """
     Pseudo-log transformation
@@ -840,38 +865,30 @@ class pseudo_log_trans(trans):
     base : int
         Approximate logarithm used. If None, then
         the natural log is used.
-    kwargs : dict
-        Keyword arguments passed onto
-        :func:`trans_new`. Should not include
-        the `transform` or `inverse`.
     """
 
-    def __init__(self, sigma=1, base=None, **kwargs):
-        if base is None:
-            base = np.exp(1)
+    sigma: float = 1
+    base: float = np.exp(1)
 
-        self.sigma = sigma
-        self.base = base
-        super().__init__(**kwargs)
-
-    def transform(self, x: FloatArrayLike) -> NDArrayFloat:  # pyright: ignore[reportIncompatibleMethodOverride]
+    def transform(self, x: FloatArrayLike) -> NDArrayFloat:
         x = np.asarray(x)
         return np.arcsinh(x / (2 * self.sigma)) / np.log(self.base)
 
-    def inverse(self, x: FloatArrayLike) -> NDArrayFloat:  # pyright: ignore[reportIncompatibleMethodOverride]
+    def inverse(self, x: FloatArrayLike) -> NDArrayFloat:
         x = np.asarray(x)
         return 2 * self.sigma * np.sinh(x * np.log(self.base))
 
     def minor_breaks(
         self,
         major: FloatArrayLike,
-        limits: Optional[TupleFloat2] = None,
-        n: Optional[int] = None,
+        limits: tuple[float, float] | None = None,
+        n: int | None = None,
     ) -> NDArrayFloat:
         n = int(self.base) - 2 if n is None else n
         return super().minor_breaks(major, limits, n)
 
 
+@dataclass(kw_only=True)
 class symlog_trans(trans):
     """
     Symmetric Log Transformation
@@ -887,26 +904,22 @@ class symlog_trans(trans):
     and negative values (including zero).
     """
 
-    breaks_: BreaksFunction = breaks_symlog()
+    breaks_func: BreaksFunction = breaks_symlog()
 
-    @staticmethod
-    def transform(x: FloatArrayLike) -> NDArrayFloat:
+    def transform(self, x: FloatArrayLike) -> NDArrayFloat:
         return np.sign(x) * np.log1p(np.abs(x))
 
-    @staticmethod
-    def inverse(x: FloatArrayLike) -> NDArrayFloat:
+    def inverse(self, x: FloatArrayLike) -> NDArrayFloat:
         return np.sign(x) * (np.exp(np.abs(x)) - 1)  # type: ignore
 
 
-def gettrans(
-    t: str | Callable[[], Type[trans]] | Type[trans] | trans | None = None,
-):
+def gettrans(t: str | Type[trans] | trans | None = None):
     """
     Return a trans object
 
     Parameters
     ----------
-    t : str | callable | type | trans
+    t : str | type | trans
         Name of transformation function. If None, returns an
         identity transform.
 
@@ -914,20 +927,16 @@ def gettrans(
     -------
     out : trans
     """
-    obj = t
-    # Make sure trans object is instantiated
-    if t is None:
+    if isinstance(t, str):
+        names = (f"{t}_trans", t)
+        for name in names:
+            if t := REGISTRY.get(name):
+                return t()
+    elif isinstance(t, trans):
+        return t
+    elif isinstance(t, type) and issubclass(t, trans):
+        return t()
+    elif t is None:
         return identity_trans()
 
-    if isinstance(obj, str):
-        name = "{}_trans".format(obj)
-        obj = globals()[name]()
-    if callable(obj):
-        obj = obj()
-    if isinstance(obj, type):
-        obj = obj()
-
-    if not isinstance(obj, trans):
-        raise ValueError("Could not get transform object.")
-
-    return obj
+    raise ValueError(f"Could not get transform object. {t}")

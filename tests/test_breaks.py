@@ -182,11 +182,15 @@ def test_minor_breaks_trans():
 def test_breaks_date():
     # cpython
     limits = (datetime(2010, 1, 1), datetime(2026, 1, 1))
-    breaks = breaks_date("5 Years")
+    breaks = breaks_date(width="5 Years")
     assert [d.year for d in breaks(limits)] == [2010, 2015, 2020, 2025, 2030]
 
-    breaks = breaks_date("10 Years")(limits)
+    breaks = breaks_date(width="10 Years")(limits)
     assert [d.year for d in breaks] == [2010, 2020, 2030]
+
+    with pytest.warns(FutureWarning):
+        breaks = breaks_date("10 Years")(limits)
+        assert [d.year for d in breaks] == [2010, 2020, 2030]
 
     # numpy datetime64
     limits = (np.datetime64("1973"), np.datetime64("1997"))
@@ -195,7 +199,7 @@ def test_breaks_date():
 
     # NaT
     limits = np.datetime64("NaT"), datetime(2017, 1, 1)
-    breaks = breaks_date("10 Years")(limits)
+    breaks = breaks_date(width="10 Years")(limits)
     assert len(breaks) == 0
 
     # automatic monthly breaks
@@ -370,9 +374,9 @@ def test_breaks_timedelta():
     minutes = [val.total_seconds() / 60 for val in major]
     npt.assert_allclose(minutes, [0, 2, 4, 6, 8])
 
-    # numpy
+    # numpy timedelta64 is not supported
     x = [np.timedelta64(i * 10, "D") for i in range(1, 10)]
-    limits = min(x), max(x)
+    limits = x[0], x[-1]
     with pytest.raises(ValueError):
         breaks(limits)
 

@@ -1,5 +1,4 @@
 from datetime import datetime, timedelta
-from types import FunctionType, MethodType
 from zoneinfo import ZoneInfo
 
 import numpy as np
@@ -21,9 +20,11 @@ from mizani.transforms import (
     log2_trans,
     log10_trans,
     log_trans,
+    logit_trans,
     modulus_trans,
     pd_timedelta_trans,
     probability_trans,
+    probit_trans,
     pseudo_log_trans,
     reciprocal_trans,
     reverse_trans,
@@ -31,7 +32,6 @@ from mizani.transforms import (
     symlog_trans,
     timedelta_trans,
     trans,
-    trans_new,
 )
 
 arr = np.arange(1, 100)
@@ -41,32 +41,6 @@ def test_trans():
     with pytest.raises(TypeError):
         trans()  # type: ignore
 
-    with pytest.raises(AttributeError):
-        identity_trans(universe=True)
-
-
-def test_trans_new():
-    t = trans_new(
-        "bounded_identity",
-        staticmethod(lambda x: x),
-        classmethod(lambda x: x),
-        _format=lambda x: str(x),
-        domain=(-999, 999),
-        doc="Bounded Identity transform",
-    )
-
-    assert t.__name__ == "bounded_identity_trans"
-    assert isinstance(t.transform, FunctionType)
-    assert isinstance(t.inverse, MethodType)
-    assert isinstance(t.format, FunctionType)
-    assert t.domain == (-999, 999)
-    assert t.__doc__ == "Bounded Identity transform"
-
-    # ticks do not go beyond the bounds
-    major = t().breaks((-1999, 1999))
-    assert min(major) >= -999
-    assert max(major) <= 999
-
 
 def test_gettrans():
     t0 = identity_trans()
@@ -74,10 +48,9 @@ def test_gettrans():
     t2 = gettrans(identity_trans)
     t3 = gettrans("identity")
     t4 = gettrans()
-    assert all(isinstance(x, identity_trans) for x in (t0, t1, t2, t3, t4))
-
-    t = gettrans(exp_trans)
-    assert t.__class__.__name__ == "power_e_trans"
+    assert all(
+        x.__class__.__name__ == "identity_trans" for x in (t0, t1, t2, t3, t4)
+    )
 
     with pytest.raises(ValueError):
         gettrans(object)
@@ -107,13 +80,17 @@ def _test_trans(trans, x, *args, **kwargs):
     assert all(minor >= t.domain[0])
     assert all(minor <= t.domain[1])
 
+    # We can convert the diff types to numerics
+    xdiff_num = t.diff_type_to_num(np.diff(x))
+    assert all(isinstance(val, (float, int, np.number)) for val in xdiff_num)
+
 
 def test_asn_trans():
-    (_test_trans(asn_trans, arr * 0.01),)
+    _test_trans(asn_trans, arr * 0.01)
 
 
 def test_atanh_trans():
-    (_test_trans(atanh_trans, arr * 0.001),)
+    _test_trans(atanh_trans, arr * 0.001)
 
 
 def test_boxcox_trans():
@@ -184,8 +161,8 @@ def test_logn_trans():
     log4_trans = log_trans(
         4,
         domain=(0.1, 100),
-        breaks=breaks_extended(),
-        minor_breaks=minor_breaks(),
+        breaks_func=breaks_extended(),
+        minor_breaks_func=minor_breaks(),
     )
     _test_trans(log4_trans, arr)
 
@@ -224,6 +201,10 @@ def test_probability_trans():
     npt.assert_allclose(xt[:3], 1 - xt[-3:][::-1])
     npt.assert_allclose(x, x2)
 
+    # Cover the paths these create as well
+    logit_trans()
+    probit_trans()
+
 
 def test_datetime_trans():
     UTC = ZoneInfo("UTC")
@@ -253,6 +234,9 @@ def test_datetime_trans():
     st = t.transform(s)
     s2 = t.inverse(st)
     assert all(s == s2)
+
+    sdiff_num = t.diff_type_to_num(s.diff())
+    assert all(isinstance(val, (float, int, np.number)) for val in sdiff_num)
 
 
 def test_datetime_trans_tz():
@@ -285,10 +269,26 @@ def test_timedelta_trans():
     x2 = t.inverse(xt)
     assert all(a == b for a, b in zip(x, x2))
 
+    s = pd.Series(x)
+    st = t.transform(s)
+    s2 = t.inverse(st)
+    assert all(a == b for a, b in zip(s, s2))
+
+    sdiff_num = t.diff_type_to_num(s.diff())
+    assert all(isinstance(val, (float, int, np.number)) for val in sdiff_num)
+
 
 def test_pd_timedelta_trans():
-    x = [pd.Timedelta(days=i) for i in range(1, 11)]
+    x = [timedelta(days=i) for i in range(1, 11)]
     t = pd_timedelta_trans()
     xt = t.transform(x)
     x2 = t.inverse(xt)
     assert all(a == b for a, b in zip(x, x2))
+
+    s = pd.Series(x)
+    st = t.transform(s)
+    s2 = t.inverse(st)
+    assert all(a == b for a, b in zip(s, s2))
+
+    sdiff_num = t.diff_type_to_num(s.diff())
+    assert all(isinstance(val, (float, int, np.number)) for val in sdiff_num)

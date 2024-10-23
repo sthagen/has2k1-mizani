@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Sized
 from datetime import datetime, timedelta, tzinfo
 from typing import TYPE_CHECKING, overload
 from zoneinfo import ZoneInfo
 
 import numpy as np
+import pandas as pd
 from dateutil.rrule import rrule
 
 from ..utils import get_timezone, isclose_abs
@@ -13,7 +15,7 @@ from .date_utils import Interval, align_limits, expand_datetime_limits
 from .types import DateFrequency, date_breaks_info
 
 if TYPE_CHECKING:
-    from typing import Generator, Optional, Sequence
+    from typing import Generator, Sequence
 
     from mizani.typing import (
         Datetime,
@@ -22,7 +24,8 @@ if TYPE_CHECKING:
         NDArrayDatetime,
         NDArrayFloat,
         SeqDatetime,
-        TzInfo,
+        Timedelta,
+        TimedeltaArrayLike,
     )
 
 
@@ -77,7 +80,7 @@ def _from_ordinalf(x: float, tz: tzinfo | None) -> datetime:
 _from_ordinalf_np_vectorized = np.vectorize(_from_ordinalf, otypes="O")
 
 
-def get_tzinfo(tz: Optional[str | TzInfo] = None) -> TzInfo | None:
+def get_tzinfo(tz: str | tzinfo | None = None) -> tzinfo | None:
     """
     Generate `~datetime.tzinfo` from a string or return `~datetime.tzinfo`.
 
@@ -142,13 +145,54 @@ def datetime64_to_num(x: NDArrayDatetime) -> NDArrayFloat:
 
 
 def num_to_datetime(
-    x: FloatArrayLike, tz: Optional[str | TzInfo] = None
+    x: FloatArrayLike, tz: str | tzinfo | None = None
 ) -> NDArrayDatetime:
     """
     Convert any float array to numpy datetime64 array
     """
     tz = get_tzinfo(tz) or UTC
     return _from_ordinalf_np_vectorized(x, tz)
+
+
+# NOTE: We only deal with timedelta and pd.Timedelta
+
+
+@overload
+def timedelta_to_num(x: TimedeltaArrayLike) -> NDArrayFloat: ...
+
+
+@overload
+def timedelta_to_num(x: Timedelta) -> float: ...
+
+
+def timedelta_to_num(
+    x: TimedeltaArrayLike | Timedelta,
+) -> NDArrayFloat | float:
+    """
+    Convert any timedelta to days
+
+    This function gives us a numeric representation a timedelta that
+    we can add/subtract from the numeric representation of datetimes.
+    """
+    _x = x if (sized := isinstance(x, Sized)) else pd.Series([x])
+
+    if not len(_x):
+        return np.array([], dtype=float)
+
+    res: NDArrayFloat = np.array(
+        [td.total_seconds() / SECONDS_PER_DAY for td in _x]
+    )
+    return res if sized else res[0]
+
+
+def num_to_timedelta(x: FloatArrayLike) -> Sequence[pd.Timedelta]:
+    """
+    Convert any float array to numpy datetime64 array
+
+    Returns pd.Timedelta because they have a larger range than
+    datetime.timedelta.
+    """
+    return tuple(pd.Timedelta(days=val) for val in x)
 
 
 WIDTHS: dict[DateFrequency, Sequence[int]] = {
@@ -293,8 +337,8 @@ def calculate_date_breaks_byunits(
     limits,
     units: DatetimeBreaksUnits,
     width: int,
-    max_breaks: Optional[int] = None,
-    tz: Optional[TzInfo] = None,
+    max_breaks: int | None = None,
+    tz: tzinfo | None = None,
 ) -> Sequence[datetime]:
     """
     Calcuate date breaks using appropriate units
