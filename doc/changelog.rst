@@ -3,7 +3,7 @@ Changelog
 
 v0.13.0
 -------
-*not-yet-released*
+*2024-10-24*
 
 API Changes
 ***********
@@ -12,6 +12,12 @@ API Changes
   in the first place, so removing it should be of consequence.
 
 - `mizani.transforms.trans_new` function has been deprecated.
+
+Enhancements
+************
+
+- `~mizani.breaks.breaks_date` has been slightly improved for the case when it
+  generates monthly breaks.
 
 New
 ***
