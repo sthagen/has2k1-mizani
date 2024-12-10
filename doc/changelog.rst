@@ -1,6 +1,19 @@
 Changelog
 =========
 
+v0.13.1
+-------
+*2024-12-10*
+
+.. image:: https://zenodo.org/badge/DOI/10.5281/zenodo.14364079.svg
+  :target: https://doi.org/10.5281/zenodo.14364079
+
+Enhancements
+************
+
+- Type checking pass with numpy 2.2.
+
+
 v0.13.0
 -------
 *2024-10-24*
