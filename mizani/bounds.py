@@ -90,7 +90,7 @@ def rescale(
     array([0. , 0.2, 0.4, 0.6, 0.8, 1. ])
     """
     __from = (np.min(x), np.max(x)) if _from is None else _from
-    return np.interp(x, __from, to)
+    return np.interp(x, __from, to)  # pyright: ignore[reportReturnType]
 
 
 def rescale_mid(
@@ -250,9 +250,9 @@ def squish_infinite(
     array([  0.  , -10.  ,   0.5 ,   0.25,   9.  ])
     """
     if isinstance(x, pd.Series):
-        _x = x.to_numpy().copy()
+        _x = x.to_numpy().copy().astype(float)
     else:
-        _x = np.array(x, copy=True)
+        _x = np.array(x, copy=True).astype(float)
     _x[np.isneginf(_x)] = range[0]
     _x[np.isposinf(_x)] = range[1]
     return _x
@@ -289,9 +289,9 @@ def squish(
     array([0. , 0. , 0.2, 0.8, 1. , 1. ])
     """
     if isinstance(x, pd.Series):
-        _x = x.to_numpy().copy()
+        _x = x.to_numpy().copy().astype(float)
     else:
-        _x = np.array(x, copy=True)
+        _x = np.array(x, copy=True).astype(float)
     finite = np.isfinite(_x) if only_finite else True
     _x[np.logical_and(_x < range[0], finite)] = range[0]
     _x[np.logical_and(_x > range[1], finite)] = range[1]
@@ -365,7 +365,7 @@ def censor(
     if bool_idx.any():
         if res.dtype == int:
             res = res.astype(float)
-        res[bool_idx] = null  # pyright: ignore[reportCallIssue,reportArgumentType]
+        res[bool_idx] = null  # pyright: ignore[reportArgumentType]
     return res
 
 
@@ -415,8 +415,9 @@ def zero_range(x: tuple[Any, Any], tol: float = EPSILON * 100) -> bool:
         return x[0].total_seconds() == x[1].total_seconds()
     elif not isinstance(x[0], (float, int, np.number)):
         raise TypeError(
-            "zero_range objects cannot work with objects "
-            "of type '{}'".format(type(x[0]))
+            "zero_range objects cannot work with objects of type '{}'".format(
+                type(x[0])
+            )
         )
     else:
         low, high = x
