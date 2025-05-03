@@ -1,6 +1,30 @@
 Changelog
 =========
 
+v0.13.5
+-------
+
+*2025-05-02*
+
+Bug Fixes
+*********
+
+- Fixed using a discrete palette and requesting less colours than
+  than the smallest swatch in the palette. Among the affected
+  palettes are `category10`, `category20`, `category20b`,
+  `category20c`.
+
+v0.13.4
+-------
+
+*2025-05-02*
+
+Enhancements
+************
+
+- Added aliases to the vega colormaps for the names used in matplotlib.
+  plotnine issue `[#938] <https://github.com/has2k1/plotnine/issues/938>`_
+
 v0.13.3
 -------
 
@@ -10,7 +34,7 @@ Enhancements
 ************
 
 - Make it possible to train discrete data that is a sequence of tuples.
-  (plotnine issue [#933](https://github.com/has2k1/plotnine/issues/933))
+  plotnine issue `[#933] <https://github.com/has2k1/plotnine/issues/933>`_
 
 v0.13.2
 -------
