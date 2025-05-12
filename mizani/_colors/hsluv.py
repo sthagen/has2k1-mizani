@@ -36,6 +36,7 @@ __all__ = (
     "hsluv_to_lch",
     "hsluv_to_rgb",
     "lch_to_hpluv",
+    "lch_to_hex",
     "lch_to_hsluv",
     "lch_to_luv",
     "lch_to_rgb",
@@ -126,17 +127,13 @@ def _dot_product(a: Triplet, b: Triplet) -> float:
 
 
 def _from_linear(c: float) -> float:
-    if c <= 0.0031308:
-        return 12.92 * c
-
-    return 1.055 * (c ** (5 / 12)) - 0.055
+    v = 12.92 * c if c <= 0.0031308 else 1.055 * c ** (5 / 12) - 0.055
+    return min(max(v, 0), 1)
 
 
 def _to_linear(c: float) -> float:
-    if c > 0.04045:
-        return ((c + 0.055) / 1.055) ** 2.4
-
-    return c / 12.92
+    v = ((c + 0.055) / 1.055) ** 2.4 if c > 0.04045 else c / 12.92
+    return min(max(v, 0), 1)
 
 
 def _y_to_l(y: float) -> float:
@@ -343,3 +340,7 @@ def hex_to_hsluv(s: RGBHexColor) -> Triplet:
 
 def hex_to_hpluv(s: RGBHexColor) -> Triplet:
     return rgb_to_hpluv(hex_to_rgb(s))
+
+
+def lch_to_hex(_hx_tuple: Triplet) -> RGBHexColor:
+    return rgb_to_hex(lch_to_rgb(_hx_tuple))
