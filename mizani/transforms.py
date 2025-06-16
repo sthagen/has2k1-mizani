@@ -33,12 +33,8 @@ from zoneinfo import ZoneInfo
 import numpy as np
 import pandas as pd
 
-from ._core.dates import (
-    datetime_to_num,
-    num_to_datetime,
-    num_to_timedelta,
-    timedelta_to_num,
-)
+from ._datetime.utils import datetime_to_num, num_to_datetime
+from ._timedelta.utils import num_to_timedelta, timedelta_to_num
 from .breaks import (
     breaks_date,
     breaks_extended,
@@ -774,7 +770,7 @@ class datetime_trans(trans):
             return np.array([])
 
         try:
-            tz = next(iter(x)).tzinfo
+            tz = next(iter(x)).tzinfo  # pyright: ignore[reportAttributeAccessIssue]
         except AttributeError:
             tz = None
 
