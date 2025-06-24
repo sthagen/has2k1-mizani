@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, overload
 
+import numpy as np
+
 from mizani._colors.named_colors import get_named_color
 
 if TYPE_CHECKING:
@@ -59,7 +61,7 @@ def color_tuple_to_hex(t: RGBColor | RGBAColor) -> str:
 
 
 @overload
-def to_rgba(colors: ColorType, alpha: float) -> ColorType: ...
+def to_rgba(colors: ColorType | None, alpha: float) -> ColorType: ...
 
 
 @overload
@@ -81,7 +83,7 @@ def to_rgba(
 
 
 def to_rgba(
-    colors: Sequence[ColorType] | AnySeries | ColorType,
+    colors: Sequence[ColorType] | AnySeries | ColorType | None,
     alpha: float | Sequence[float] | AnySeries,
 ) -> Sequence[ColorType] | ColorType:
     """
@@ -101,10 +103,10 @@ def to_rgba(
         RGBA color(s)
     """
     if isinstance(colors, str):
-        if colors == "none" or colors == "None":
+        if colors in ("none", "None", ""):
             return "none"
 
-        if isinstance(alpha, (float, int)):
+        if isinstance(alpha, (float, int, np.floating, np.integer)):
             c = get_named_color(colors)
             if len(c) > 7:
                 return c
@@ -119,6 +121,8 @@ def to_rgba(
             return (*colors, alpha)  # pyright: ignore[reportReturnType]
         else:
             return colors
+    elif colors is None:
+        return "none"
 
     if isinstance(alpha, (float, int)):
         return [to_rgba(c, alpha) for c in colors]  # pyright: ignore[reportCallIssue,reportArgumentType]
