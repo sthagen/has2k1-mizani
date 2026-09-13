@@ -1,6 +1,35 @@
 Changelog
 =========
 
+v0.14.6
+-------
+
+2026-09-07
+
+Enhancements
+************
+
+- :class:`~mizani.breaks.breaks_extended` accepts a pair for
+  ``only_inside``, one flag per end, so a break sequence can be held
+  inside the limits at one end and allowed past them at the other.
+
+
+v0.14.5
+-------
+
+2026-09-04
+
+Bug Fixes
+*********
+
+- :func:`~mizani.palettes.brewer_pal` now resolves a named palette to its own
+  type, so the name no longer has to match the ``type`` argument.
+  ``brewer_pal(palette="Set2")`` now works even though ``type`` defaults to
+  sequential and ``Set2`` is qualitative. An unknown name raises a
+  ``ValueError`` listing the valid names. This resolves `(plotnine #1048)
+  <https://github.com/has2k1/plotnine/issues/1048>`_.
+
+
 v0.14.4
 -------
 
