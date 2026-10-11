@@ -14,8 +14,10 @@ from __future__ import annotations
 
 import re
 from bisect import bisect_right
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from numbers import Real
+from typing import TYPE_CHECKING, cast
 from zoneinfo import ZoneInfo
 
 import numpy as np
@@ -34,12 +36,18 @@ if TYPE_CHECKING:
     from mizani.typing import (
         BytesSymbol,
         FloatArrayLike,
+        NDArrayFloat,
         TimedeltaArrayLike,
         TimeIntervalSIUnits,
         TimeIntervalUnits,
     )
 
 __all__ = [
+    "cut_bytes",
+    "cut_long_scale",
+    "cut_short_scale",
+    "cut_si",
+    "cut_time_scale",
     "label_comma",
     "label_custom",
     "label_currency",
@@ -47,6 +55,7 @@ __all__ = [
     "label_percent",
     "label_scientific",
     "label_date",
+    "label_date_short",
     "label_number",
     "label_log",
     "label_timedelta",
@@ -56,6 +65,132 @@ __all__ = [
 ]
 
 UTC = ZoneInfo("UTC")
+
+
+def cut_short_scale(space: bool = False) -> dict[float, str]:
+    """
+    Create magnitude cuts for short-scale abbreviations
+
+    Parameters
+    ----------
+    space
+        Prefix each suffix with a space.
+    """
+    prefix = " " if space else ""
+    return {
+        0: prefix,
+        1e3: f"{prefix}K",
+        1e6: f"{prefix}M",
+        1e9: f"{prefix}B",
+        1e12: f"{prefix}T",
+    }
+
+
+def cut_long_scale(space: bool = False) -> dict[float, str]:
+    """
+    Create magnitude cuts for long-scale abbreviations
+
+    Parameters
+    ----------
+    space
+        Prefix each suffix with a space.
+    """
+    prefix = " " if space else ""
+    return {
+        0: prefix,
+        1e3: f"{prefix}K",
+        1e6: f"{prefix}M",
+        1e12: f"{prefix}B",
+        1e18: f"{prefix}T",
+    }
+
+
+def cut_time_scale(space: bool = False) -> dict[float, str]:
+    """
+    Create magnitude cuts from nanoseconds through weeks
+
+    Parameters
+    ----------
+    space
+        Prefix each suffix with a space.
+    """
+    prefix = " " if space else ""
+    return {
+        0: prefix,
+        1e-9: f"{prefix}ns",
+        1e-6: f"{prefix}μs",
+        1e-3: f"{prefix}ms",
+        1: f"{prefix}s",
+        60: f"{prefix}m",
+        3600: f"{prefix}h",
+        24 * 3600: f"{prefix}d",
+        7 * 24 * 3600: f"{prefix}w",
+    }
+
+
+def cut_si(unit: str) -> dict[float, str]:
+    """
+    Create SI magnitude cuts for a unit
+
+    Parameters
+    ----------
+    unit
+        Unit abbreviation to append to every prefix.
+    """
+    return {
+        0: f" {unit}",
+        1e-24: f" y{unit}",
+        1e-21: f" z{unit}",
+        1e-18: f" a{unit}",
+        1e-15: f" f{unit}",
+        1e-12: f" p{unit}",
+        1e-9: f" n{unit}",
+        1e-6: f" µ{unit}",
+        1e-3: f" m{unit}",
+        1: f" {unit}",
+        1e3: f" k{unit}",
+        1e6: f" M{unit}",
+        1e9: f" G{unit}",
+        1e12: f" T{unit}",
+        1e15: f" P{unit}",
+        1e18: f" E{unit}",
+        1e21: f" Z{unit}",
+        1e24: f" Y{unit}",
+    }
+
+
+def cut_bytes(
+    units: Literal["si", "binary"] = "si",
+) -> dict[float, str]:
+    """
+    Create byte magnitude cuts with decimal or binary units
+
+    Parameters
+    ----------
+    units
+        Use `si` for powers of 1000 or `binary` for powers of 1024.
+
+    Raises
+    ------
+    ValueError
+        If `units` is not `si` or `binary`.
+    """
+    if units == "si":
+        base, suffix = 1000, "B"
+    elif units == "binary":
+        base, suffix = 1024, "iB"
+    else:
+        raise ValueError("`units` must be either `si` or `binary`")
+
+    prefixes = ("k", "M", "G", "T", "P", "E", "Z", "Y")
+    cuts: dict[float, str] = {0: f" {suffix}"}
+    cuts.update(
+        {
+            base**power: f" {prefix}{suffix}"
+            for power, prefix in enumerate(prefixes, start=1)
+        }
+    )
+    return cuts
 
 
 @dataclass
@@ -74,6 +209,11 @@ class label_number:
         a comma or a dot.
     decimal_mark : str
         What to use to separate the decimals digits.
+    scale_cut
+        Map magnitude thresholds to suffixes. The formatter selects a
+        threshold for each value, uses non-zero thresholds to rescale it, and
+        appends the matching suffix. Use `cut_short_scale`, `cut_long_scale`,
+        `cut_time_scale`, `cut_si`, or `cut_bytes`, or pass a custom mapping.
 
     Examples
     --------
@@ -87,6 +227,10 @@ class label_number:
     ['$5', '$24', '-$42']
     >>> label_number(suffix="s")([5, 24, -42])
     ['5s', '24s', '-42s']
+    >>> label_number(scale_cut=cut_short_scale())([500, 1500, 2000, 2500])
+    ['500', '1.5K', '2.0K', '2.5K']
+    >>> label_number(scale_cut=cut_si("m"))([1e-6, 1, 1e3])
+    ['1 µm', '1 m', '1 km']
     >>> label_number(big_mark="_")([1e3, 1e4, 1e5, 1e6])
     ['1_000', '10_000', '100_000', '1_000_000']
     >>> label_number(width=3)([1, 10, 100, 1000])
@@ -113,12 +257,81 @@ class label_number:
     style_positive: Literal["", "+", " "] = ""
     align: Literal["<", ">", "=", "^"] = ">"
     width: int | None = None
+    scale_cut: Mapping[float, str] | None = None
 
     def __post_init__(self):
         if self.precision is not None:
             if self.accuracy is not None:
                 raise ValueError("Specify only one of precision or accuracy")
             self.accuracy = 10**-self.precision
+
+        self._validate_scale_cut()
+
+    def _validate_scale_cut(self) -> None:
+        scale_cut = self.scale_cut
+        if scale_cut is None:
+            return
+
+        if not isinstance(scale_cut, Mapping):
+            raise ValueError("`scale_cut` must be a mapping")
+        if not scale_cut:
+            raise ValueError("`scale_cut` must contain at least one entry")
+
+        for threshold, suffix in scale_cut.items():
+            if isinstance(threshold, bool) or not isinstance(threshold, Real):
+                raise ValueError("`scale_cut` thresholds must be real numbers")
+            if not np.isfinite(float(threshold)):
+                raise ValueError("`scale_cut` thresholds must be finite")
+            if threshold < 0:
+                raise ValueError("`scale_cut` thresholds must be non-negative")
+            if not isinstance(suffix, str):
+                raise ValueError("`scale_cut` suffixes must be strings")
+
+    def _resolve_scale_cut(
+        self, x: NDArrayFloat
+    ) -> tuple[NDArrayFloat, list[str], NDArrayFloat]:
+        scale_cut = cast("Mapping[float, str]", self.scale_cut)
+
+        pairs = sorted((float(k), v) for k, v in scale_cut.items())
+        thresholds = np.array([threshold for threshold, _ in pairs])
+        cut_suffixes = [suffix for _, suffix in pairs]
+        magnitude = np.abs(x * self.scale)
+        indices = np.searchsorted(thresholds, magnitude, side="right") - 1
+        indices[~np.isfinite(magnitude)] = -1
+
+        scales = np.full(x.shape, self.scale, dtype=float)
+        suffixes = [self.suffix] * len(x)
+
+        for position, raw_index in enumerate(indices):
+            index = int(raw_index)
+            if index < 0:
+                continue
+
+            threshold = thresholds[index]
+            if threshold and magnitude[position] / threshold % 1 and index:
+                lower_threshold = thresholds[index - 1]
+                lower_divisor = lower_threshold or 1
+                improved = magnitude[position] / lower_divisor % 1 == 0
+                step = threshold / lower_divisor
+                power_of_ten = np.log10(step) % 1 == 0
+                if improved and not power_of_ten:
+                    index -= 1
+                    threshold = lower_threshold
+
+            suffixes[position] = cut_suffixes[index] + self.suffix
+            if threshold:
+                scales[position] = self.scale / threshold
+
+        scales[x == 0] = 1
+        accuracies = np.empty(x.shape, dtype=float)
+        if self.accuracy is not None:
+            accuracies.fill(self.accuracy)
+        else:
+            for value in np.unique(scales):
+                mask = scales == value
+                accuracies[mask] = precision(x[mask] * value)
+
+        return scales, suffixes, accuracies
 
     def __call__(self, x: FloatArrayLike) -> Sequence[str]:
         # Construct formatting according to
@@ -130,23 +343,37 @@ class label_number:
         valid_big_mark = self.big_mark in ("", ",", "_")
         sep = self.big_mark if valid_big_mark else ","
 
-        fmt = (
-            f"{self.prefix}{{num:{sep}.{{precision}}f}}{self.suffix}"
-        ).format
+        fmt = (f"{self.prefix}{{num:{sep}.{{precision}}f}}{{suffix}}").format
 
-        x = np.asarray(x)
-        x_scaled = x * self.scale
-
-        if self.accuracy is None:
-            accuracy = precision(x_scaled)
+        x = np.asarray(x, dtype=float)
+        if self.scale_cut is None:
+            scales = np.full(x.shape, self.scale, dtype=float)
+            suffixes = [self.suffix] * len(x)
+            accuracy = (
+                precision(x * self.scale)
+                if self.accuracy is None
+                else self.accuracy
+            )
+            accuracies = np.full(x.shape, accuracy, dtype=float)
         else:
-            accuracy = self.accuracy
+            scales, suffixes, accuracies = self._resolve_scale_cut(x)
 
-        x = round_any(x, accuracy / self.scale)
-        digits = -np.floor(np.log10(accuracy)).astype(int)
+        x_scaled = x * scales
+        rounding = accuracies / scales
+        x_rounded = x.copy()
+        finite = np.isfinite(x_rounded)
+        x_rounded[finite] = (
+            np.round(x_rounded[finite] / rounding[finite]) * rounding[finite]
+        )
+        if self.scale_cut is not None:
+            x_scaled = x_rounded * scales
+        digits = -np.floor(np.log10(accuracies)).astype(int)
         digits = np.minimum(np.maximum(digits, 0), 20)
 
-        res = [fmt(num=abs(n), precision=digits) for n in x_scaled]
+        res = [
+            fmt(num=abs(num), precision=int(ndigits), suffix=suffix)
+            for num, ndigits, suffix in zip(x_scaled, digits, suffixes)
+        ]
         if not valid_big_mark:
             res = [s.replace(",", self.big_mark) for s in res]
 
@@ -163,7 +390,8 @@ class label_number:
             neg_fmt = "({s})".format
 
         res = [
-            neg_fmt(s=s) if num < 0 else pos_fmt(s=s) for num, s in zip(x, res)
+            neg_fmt(s=s) if num < 0 else pos_fmt(s=s)
+            for num, s in zip(x_rounded, res)
         ]
 
         if self.width is not None:
@@ -425,8 +653,10 @@ class label_log:
                 assert s == "1", f"Unexpected value {s = }, instead of '1'"
                 return f"${self.base}^{{0}}$"
 
-            exp = s.split("e")[1]
-            return f"${self.base}^{{{exp}}}$"
+            mantissa, exp = s.split("e")
+            if mantissa == "1":
+                return f"${self.base}^{{{exp}}}$"
+            return f"${mantissa} \\times {self.base}^{{{exp}}}$"
 
         # If any are in exponential format, make all of
         # them expontential
@@ -569,6 +799,130 @@ class label_date:
         if self.tz is not None:
             x = [d.astimezone(self.tz) for d in x]
         return [d.strftime(self.fmt) for d in x]
+
+
+@dataclass
+class label_date_short:
+    """
+    Compact labels for ordered datetimes
+
+    The first label establishes the calendar context. Each later label includes
+    every changed calendar component and the smaller components beneath it.
+
+    The formatter omits the time component when every value is exactly
+    midnight. It also omits the day when every value falls on the first of its
+    month, and omits the month when every value falls on 1 January.
+
+    Parameters
+    ----------
+    fmt : Sequence[str]
+        Four `strftime` formats for the year, month, day, and time.
+    sep : str
+        Separator placed between rendered components.
+    leading : str
+        Text that replaces a leading zero in each rendered component. Use
+        `"0"` to preserve leading zeroes.
+    tz : str | tzinfo | None
+        Time zone applied before detecting changes and formatting values. When
+        omitted, each input retains its time zone.
+
+    Examples
+    --------
+    >>> from datetime import datetime
+    >>> x = [datetime(2010, 1, day) for day in (1, 8, 15)]
+    >>> label_date_short()(x)
+    ['01\\nJan\\n2010', '08', '15']
+    >>> years = [datetime(year, 1, 1) for year in (2010, 2011, 2012)]
+    >>> label_date_short()(years)
+    ['2010', '2011', '2012']
+    """
+
+    fmt: Sequence[str] = ("%Y", "%b", "%d", "%H:%M")
+    sep: str = "\n"
+    leading: str = "0"
+    tz: str | tzinfo | None = None
+
+    def __post_init__(self) -> None:
+        valid_fmt = (
+            not isinstance(self.fmt, str)
+            and len(self.fmt) == 4
+            and all(isinstance(value, str) for value in self.fmt)
+        )
+        if not valid_fmt:
+            raise ValueError("`fmt` must be a sequence of four strings")
+
+        if isinstance(self.tz, str):
+            self.tz = ZoneInfo(self.tz)
+
+    def __call__(self, x: Sequence[datetime]) -> Sequence[str]:
+        """
+        Format datetimes with abbreviated calendar context
+
+        Parameters
+        ----------
+        x : Sequence[datetime]
+            Datetimes in display order.
+
+        Returns
+        -------
+        list
+            Formatted labels in input order.
+        """
+        tz = cast("tzinfo | None", self.tz)
+        values = (
+            [value.astimezone(tz) for value in x]
+            if tz is not None
+            else list(x)
+        )
+        if not values:
+            return []
+
+        formats: list[str | None] = list(self.fmt)
+        if all(
+            value.hour == 0
+            and value.minute == 0
+            and value.second == 0
+            and value.microsecond == 0
+            for value in values
+        ):
+            formats[3] = None
+            if all(value.day == 1 for value in values):
+                formats[2] = None
+                if all(value.month == 1 for value in values):
+                    formats[1] = None
+
+        labels: list[str] = []
+        previous: datetime | None = None
+        for value in values:
+            if previous is None:
+                year_changed = month_changed = day_changed = True
+            else:
+                year_changed = value.year != previous.year
+                month_changed = year_changed or value.month != previous.month
+                day_changed = month_changed or value.day != previous.day
+
+            components = (
+                formats[0] if year_changed else None,
+                formats[1] if month_changed else None,
+                formats[2] if day_changed else None,
+                formats[3],
+            )
+            parts = [
+                value.strftime(component)
+                for component in reversed(components)
+                if component is not None
+            ]
+            if self.leading != "0":
+                parts = [
+                    f"{self.leading}{part[1:]}"
+                    if part.startswith("0")
+                    else part
+                    for part in parts
+                ]
+            labels.append(self.sep.join(parts))
+            previous = value
+
+        return labels
 
 
 @dataclass

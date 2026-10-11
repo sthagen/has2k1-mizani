@@ -8,11 +8,40 @@ v0.15.0
 Enhancements
 ************
 
+- :class:`~mizani.labels.label_date_short` creates compact labels for ordered
+  datetimes. Each label shows the calendar components that changed and the
+  smaller components needed for context. Component formats, separators,
+  leading-zero replacements, and time zones are configurable.
+
 - :class:`~mizani.breaks.breaks_extended` accepts a ``placement`` mode
   for each end of the break sequence. Use ``"inside"`` to keep an end
   within the range, ``"flexible"`` to leave it unconstrained or
   ``"loose"`` to place it at or beyond the range.
   This resolves `(#80) <https://github.com/has2k1/mizani/issues/80>`_.
+
+- :class:`~mizani.labels.label_number` can rescale each value by magnitude and
+  append the corresponding suffix from a ``scale_cut`` mapping. The new
+  :func:`~mizani.labels.cut_short_scale`,
+  :func:`~mizani.labels.cut_long_scale`,
+  :func:`~mizani.labels.cut_time_scale`, :func:`~mizani.labels.cut_si`, and
+  :func:`~mizani.labels.cut_bytes` helpers provide standard short-scale,
+  long-scale, time, SI, and byte mappings.
+  This resolves `(#71) <https://github.com/has2k1/mizani/issues/71>`_.
+
+Bug Fixes
+*********
+
+- :func:`~mizani.bounds.rescale`, :func:`~mizani.bounds.rescale_mid` and
+  :func:`~mizani.bounds.rescale_max` now ignore missing values when they
+  compute the input range. Before, a single ``NaN`` made every output value
+  ``NaN`` (or ``0.5`` for :func:`~mizani.bounds.rescale_mid`).
+
+- The inverse of :class:`~mizani.transforms.log_trans` and the transform of
+  :class:`~mizani.transforms.exp_trans` no longer fail on integer arrays with
+  negative values when the base is an integer, as in
+  :class:`~mizani.transforms.log10_trans` and
+  :class:`~mizani.transforms.log2_trans`. Before, they raised
+  ``ValueError: Integers to negative integer powers are not allowed``.
 
 
 v0.14.6

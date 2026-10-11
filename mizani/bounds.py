@@ -24,7 +24,7 @@ from __future__ import annotations
 import datetime
 import sys
 from copy import copy
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, overload
 
 import numpy as np
 import pandas as pd
@@ -89,7 +89,7 @@ def rescale(
     >>> rescale(x, to=(0, 2), _from=(0, 20))
     array([0. , 0.2, 0.4, 0.6, 0.8, 1. ])
     """
-    __from = (np.min(x), np.max(x)) if _from is None else _from
+    __from = (np.nanmin(x), np.nanmax(x)) if _from is None else _from
     return np.interp(x, __from, to)  # pyright: ignore[reportReturnType]
 
 
@@ -141,7 +141,7 @@ def rescale_mid(
     array([0. , 0.5, 1. ])
     """
     __from: NDArrayFloat = np.array(
-        (np.min(x), np.max(x)) if _from is None else _from
+        (np.nanmin(x), np.nanmax(x)) if _from is None else _from
     )
 
     if zero_range(__from) or zero_range(to):  # type: ignore
@@ -208,7 +208,7 @@ def rescale_max(
     """
     x = np.asarray(x)
     if _from is None:
-        _from = np.min(x), np.max(x)  # type: ignore
+        _from = np.nanmin(x), np.nanmax(x)  # type: ignore
         assert _from is not None  # type narrowing
 
     if np.any(x < 0):
@@ -438,12 +438,75 @@ def zero_range(x: tuple[Any, Any], tol: float = EPSILON * 100) -> bool:
     return bool(((high - low) / low_abs) < tol)
 
 
+@overload
 def expand_range(
     range: tuple[float, float],
     mul: float = 0,
-    add: float = 0,
+    add: float | None = None,
     zero_width: float = 1,
-) -> tuple[float, float]:
+) -> tuple[float, float]: ...
+
+
+@overload
+def expand_range(
+    range: tuple[pd.Timestamp, pd.Timestamp],
+    mul: float = 0,
+    add: pd.Timedelta | None = None,
+    zero_width: pd.Timedelta = ...,
+) -> tuple[pd.Timestamp, pd.Timestamp]: ...
+
+
+@overload
+def expand_range(
+    range: tuple[datetime.datetime, datetime.datetime],
+    mul: float = 0,
+    add: datetime.timedelta | None = None,
+    zero_width: datetime.timedelta = ...,
+) -> tuple[datetime.datetime, datetime.datetime]: ...
+
+
+@overload
+def expand_range(
+    range: tuple[np.datetime64, np.datetime64],
+    mul: float = 0,
+    add: np.timedelta64 | None = None,
+    zero_width: np.timedelta64 = ...,
+) -> tuple[np.datetime64, np.datetime64]: ...
+
+
+@overload
+def expand_range(
+    range: tuple[pd.Timedelta, pd.Timedelta],
+    mul: float = 0,
+    add: pd.Timedelta | None = None,
+    zero_width: pd.Timedelta = ...,
+) -> tuple[pd.Timedelta, pd.Timedelta]: ...
+
+
+@overload
+def expand_range(
+    range: tuple[datetime.timedelta, datetime.timedelta],
+    mul: float = 0,
+    add: datetime.timedelta | None = None,
+    zero_width: datetime.timedelta = ...,
+) -> tuple[datetime.timedelta, datetime.timedelta]: ...
+
+
+@overload
+def expand_range(
+    range: tuple[np.timedelta64, np.timedelta64],
+    mul: float = 0,
+    add: np.timedelta64 | None = None,
+    zero_width: np.timedelta64 = ...,
+) -> tuple[np.timedelta64, np.timedelta64]: ...
+
+
+def expand_range(
+    range: tuple[Any, Any],
+    mul: float = 0,
+    add: Any | None = None,
+    zero_width: Any = 1,
+) -> tuple[Any, Any]:
     """
     Expand a range with a multiplicative or additive constant
 
@@ -454,7 +517,7 @@ def expand_range(
     mul : int | float
         Multiplicative constant
     add : int | float | timedelta
-        Additive constant
+        Additive constant. If omitted, do not add a constant.
     zero_width : int | float | timedelta
         Distance to use if range has zero width
 
@@ -495,7 +558,9 @@ def expand_range(
     if zero_range(x):
         new = low - zero_width / 2, low + zero_width / 2
     else:
-        dx = (high - low) * mul + add
+        dx = (high - low) * mul
+        if add is not None:
+            dx += add
         new = low - dx, high + dx
 
     return new

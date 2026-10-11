@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import warnings
 from datetime import datetime, timedelta, tzinfo
+from types import MappingProxyType
 from zoneinfo import ZoneInfo
 
 import numpy as np
@@ -8,11 +9,17 @@ import pandas as pd
 import pytest
 
 from mizani.labels import (
+    cut_bytes,
+    cut_long_scale,
+    cut_short_scale,
+    cut_si,
+    cut_time_scale,
     label_bytes,
     label_comma,
     label_currency,
     label_custom,
     label_date,
+    label_date_short,
     label_log,
     label_number,
     label_ordinal,
@@ -104,6 +111,153 @@ def test_label_number():
     with pytest.raises(ValueError):
         label_number(accuracy=0.01, precision=2)
 
+    with np.errstate(divide="ignore", invalid="ignore"):
+        assert label_number(scale=0)([1]) == ["0"]
+
+
+def test_label_number_scale_cut_uses_magnitude_thresholds() -> None:
+    cuts = {0: "", 1e3: "K", 1e6: "M"}
+    x = np.array([0, 250, 500, 750, 1250, 1500]) * 1e3
+    assert label_number(scale_cut=cuts)(x) == [
+        "0",
+        "250K",
+        "500K",
+        "750K",
+        "1.25M",
+        "1.50M",
+    ]
+
+    assert label_number(scale=2, scale_cut=cuts)([500]) == ["1K"]
+    assert label_number(scale_cut=cuts)([1e9]) == ["1000M"]
+
+
+def test_label_number_scale_cut_prefers_exact_smaller_units() -> None:
+    time_cuts = {0: "", 86400: "d", 604800: "w"}
+    assert label_number(scale_cut=time_cuts)([518400, 691200]) == [
+        "6d",
+        "8d",
+    ]
+
+    decimal_cuts = {0: "", 1000: "K"}
+    assert label_number(scale_cut=decimal_cuts)(
+        [0, 500, 1500, 2000, 2500]
+    ) == ["0", "500", "1.5K", "2.0K", "2.5K"]
+
+
+def test_label_number_scale_cut_handles_boundaries_and_signs() -> None:
+    cuts = {1000: "K", 0: ""}
+    original_items = list(cuts.items())
+    read_only_cuts = MappingProxyType(cuts)
+
+    assert label_number(scale_cut=read_only_cuts)(
+        [-1000, -999, 999, 1000]
+    ) == ["-1K", "-999", "999", "1K"]
+    assert list(cuts.items()) == original_items
+
+    out_of_order = {1000: "k", 100: "h"}
+    assert label_number(scale_cut=out_of_order)([50, 100, 1000]) == [
+        "50",
+        "1h",
+        "1k",
+    ]
+
+
+def test_label_number_scale_cut_preserves_formatting_options() -> None:
+    cuts = {0: "", 1000: "K"}
+    label = label_number(
+        prefix="$",
+        suffix=" USD",
+        scale_cut=cuts,
+        style_negative="hyphen",
+    )
+    assert label([-1000, 1000]) == ["−$1K USD", "$1K USD"]
+    assert label_currency(scale_cut=cuts)([1, 1000]) == [
+        "$1.00",
+        "$1.00K",
+    ]
+    assert label_number(width=5, scale_cut=cuts)([1000]) == ["   1K"]
+    assert label_number(precision=2, scale_cut=cuts)([1500]) == ["1.50K"]
+    assert label_number(style_positive="+", scale_cut=cuts)([1000]) == ["+1K"]
+
+
+def test_label_number_scale_cut_formats_non_finite_and_empty_values() -> None:
+    label = label_number(
+        prefix="$",
+        suffix=" USD",
+        scale_cut={0: "", 1000: "K"},
+    )
+    with warnings.catch_warnings(record=True) as record:
+        assert label([np.nan, np.inf, -np.inf]) == [
+            "$nan USD",
+            "$inf USD",
+            "-$inf USD",
+        ]
+    assert not record
+    assert label([]) == []
+
+
+@pytest.mark.parametrize(
+    ("scale_cut", "message"),
+    [
+        ([], "mapping"),
+        ({}, "at least one"),
+        ({True: ""}, "real numbers"),
+        ({np.nan: ""}, "finite"),
+        ({np.inf: ""}, "finite"),
+        ({-1: ""}, "non-negative"),
+        ({0: 1}, "suffixes must be strings"),
+    ],
+)
+def test_label_number_rejects_invalid_scale_cut(
+    scale_cut: object, message: str
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        label_number(scale_cut=scale_cut)
+
+
+def test_label_number_with_short_and_long_scale_cuts() -> None:
+    assert label_number(scale_cut=cut_short_scale())([999, 1e3, 1e9]) == [
+        "999",
+        "1K",
+        "1B",
+    ]
+    assert label_number(scale_cut=cut_long_scale())([1e9, 1e12]) == [
+        "1000M",
+        "1B",
+    ]
+    assert label_number(scale_cut=cut_short_scale(space=True))([1, 1000]) == [
+        "1 ",
+        "1 K",
+    ]
+
+
+def test_label_number_with_time_and_si_scale_cuts() -> None:
+    assert label_number(scale_cut=cut_time_scale())([1e-6, 691200]) == [
+        "1μs",
+        "8d",
+    ]
+    assert label_number(scale_cut=cut_si("m"))([1e-6, 1, 1000]) == [
+        "1 µm",
+        "1 m",
+        "1 km",
+    ]
+
+
+def test_label_number_with_byte_scale_cuts() -> None:
+    assert label_number(scale_cut=cut_bytes())([1, 1000, 1000**2]) == [
+        "1 B",
+        "1 kB",
+        "1 MB",
+    ]
+    assert label_number(scale_cut=cut_bytes("binary"))([1, 1024, 1024**2]) == [
+        "1 iB",
+        "1 kiB",
+        "1 MiB",
+    ]
+
+    with pytest.raises(ValueError, match="units"):
+        cut_bytes("decimal")
+
 
 def test_label_log():
     label = label_log()
@@ -148,6 +302,12 @@ def test_label_log():
     ]
     assert label([35, 60]) == ["35", "60"]
     assert label([1, 10000]) == ["$10^{0}$", "$10^{4}$"]
+    # breaks that are not powers of the base keep their mantissa
+    assert label([1e-5, 3e-5, 1e-4]) == [
+        "$10^{-5}$",
+        "$3 \\times 10^{-5}$",
+        "$10^{-4}$",
+    ]
 
     label = label_log(base=8, mathtex=True)
     assert label([1, 4, 64]) == ["$8^{0}$", "$8^{0.667}$", "$8^{2}$"]
@@ -177,6 +337,113 @@ def test_label_date():
     x = [datetime(2023, 10, 1, tzinfo=TZ), datetime(2023, 11, 1, tzinfo=TZ)]
     with pytest.raises(NotImplementedError, match=r"^a tzinfo subclass"):
         label_date()(x)
+
+
+def test_label_date_short_omits_unchanged_components() -> None:
+    label = label_date_short()
+
+    weekly = pd.date_range("2010-01-01", periods=8, freq="7D")
+    assert label(weekly) == [
+        "01\nJan\n2010",
+        "08",
+        "15",
+        "22",
+        "29",
+        "05\nFeb",
+        "12",
+        "19",
+    ]
+
+    quarterly = pd.date_range("2010-01-01", periods=8, freq="3MS")
+    assert label(quarterly) == [
+        "Jan\n2010",
+        "Apr",
+        "Jul",
+        "Oct",
+        "Jan\n2011",
+        "Apr",
+        "Jul",
+        "Oct",
+    ]
+
+    yearly = pd.date_range("2010-01-01", periods=4, freq="YS")
+    assert label(yearly) == ["2010", "2011", "2012", "2013"]
+
+    intraday = pd.date_range("2010-01-01", periods=4, freq="3h")
+    assert label(intraday) == [
+        "00:00\n01\nJan\n2010",
+        "03:00",
+        "06:00",
+        "09:00",
+    ]
+
+
+def test_label_date_short_applies_options_and_timezone() -> None:
+    monthly = pd.date_range("2024-01-01", "2025-01-01", freq="MS")
+    label = label_date_short(
+        fmt=("%Y", "%m", "%d", "%H:%M"),
+        sep="-",
+        leading="x",
+    )
+    assert label(monthly) == [
+        "x1-2024",
+        "x2",
+        "x3",
+        "x4",
+        "x5",
+        "x6",
+        "x7",
+        "x8",
+        "x9",
+        "10",
+        "11",
+        "12",
+        "x1-2025",
+    ]
+
+    UTC = ZoneInfo("UTC")
+    values = [
+        datetime(2010, 1, 1, 20, tzinfo=UTC),
+        datetime(2010, 1, 1, 22, tzinfo=UTC),
+    ]
+    assert label_date_short(tz="Africa/Kampala")(values) == [
+        "23:00\n01\nJan\n2010",
+        "01:00\n02",
+    ]
+
+
+def test_label_date_short_includes_nonzero_seconds() -> None:
+    values = [
+        datetime(2024, 1, 1, 0, 0, 5),
+        datetime(2024, 1, 1, 0, 0, 10),
+    ]
+    label = label_date_short(fmt=("%Y", "%b", "%d", "%H:%M:%S"))
+
+    assert label(values) == [
+        "00:00:05\n01\nJan\n2024",
+        "00:00:10",
+    ]
+
+
+@pytest.mark.parametrize(
+    "fmt",
+    [
+        "%Y",
+        ("%Y", "%b", "%d"),
+        ("%Y", "%b", "%d", "%H", "%M"),
+        ("%Y", "%b", "%d", 1),
+    ],
+)
+def test_label_date_short_requires_four_format_strings(
+    fmt: object,
+) -> None:
+    with pytest.raises(ValueError, match="sequence of four strings"):
+        label_date_short(fmt=fmt)  # type: ignore[arg-type]
+
+
+def test_label_date_short_raises_for_missing_values() -> None:
+    with pytest.raises(ValueError):
+        label_date_short()([pd.NaT])
 
 
 def test_label_timedelta():
@@ -268,6 +535,7 @@ def test_empty_breaks():
     assert label_percent()(x) == []
     assert label_scientific()(x) == []
     assert label_date()(x) == []
+    assert label_date_short()(x) == []
     assert label_number()(x) == []
     assert label_log()(x) == []
     assert label_timedelta()(x) == []
